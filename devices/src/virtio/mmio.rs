@@ -493,17 +493,17 @@ mod tests {
         );
 
         d.queue_select = 0;
-        assert_eq!(d.with_queue(0, |q| q.get_max_size()), 16);
+        assert_eq!(d.with_queue(0, Queue::get_max_size), 16);
         assert!(d.with_queue_mut(|q| q.size = 16));
         assert_eq!(d.queues[d.queue_select as usize].size, 16);
 
         d.queue_select = 1;
-        assert_eq!(d.with_queue(0, |q| q.get_max_size()), 32);
+        assert_eq!(d.with_queue(0, Queue::get_max_size), 32);
         assert!(d.with_queue_mut(|q| q.size = 16));
         assert_eq!(d.queues[d.queue_select as usize].size, 16);
 
         d.queue_select = 2;
-        assert_eq!(d.with_queue(0, |q| q.get_max_size()), 0);
+        assert_eq!(d.with_queue(0, Queue::get_max_size), 0);
         assert!(!d.with_queue_mut(|q| q.size = 16));
 
         d.mem.take().unwrap();

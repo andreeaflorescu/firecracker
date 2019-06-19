@@ -674,6 +674,10 @@ fn describe(method: &Method, path: &str, body: &Option<String>) -> String {
 }
 
 #[cfg(test)]
+// Allow assertions on constants is necessary because we cannot implement
+// PartialEq on ParsedRequest due to the use of serde Value which doesn't
+// implement PartialEq.
+#[allow(clippy::assertions_on_constants)]
 mod tests {
     extern crate net_util;
 
