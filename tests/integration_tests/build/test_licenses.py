@@ -10,22 +10,25 @@ import pytest
 AMAZON_COPYRIGHT_YEARS = (2018, 2019)
 AMAZON_COPYRIGHT = (
     "Copyright {} Amazon.com, Inc. or its affiliates. All Rights Reserved."
-    )
-AMAZON_LICENSE = (
-        "SPDX-License-Identifier: Apache-2.0"
-    )
+)
+APACHE_LICENSE = (
+    "SPDX-License-Identifier: Apache-2.0"
+)
 CHROMIUM_COPYRIGHT = (
     "Copyright 2017 The Chromium OS Authors. All rights reserved."
-    )
+)
 CHROMIUM_LICENSE = (
     "Use of this source code is governed by a BSD-style license that can be"
-    )
+)
+SUSE_COPYRIGHT = (
+    "Copyright 2019 SUSE LLC"
+)
 TUNTAP_COPYRIGHT = (
     "Copyright TUNTAP, 2017 The Chromium OS Authors. All rights reserved."
-    )
+)
 TUNTAP_LICENSE = (
     "Use of this source code is governed by a BSD-style license that can be"
-    )
+)
 
 EXCLUDED_DIRECTORIES = ((os.path.join(os.getcwd(), 'build')))
 
@@ -54,21 +57,26 @@ def _validate_license(filename):
             copy = file.readline()
             local_license = file.readline()
             has_amazon_copyright = (
-                    _has_amazon_copyright(copy) and
-                    AMAZON_LICENSE in local_license
+                _has_amazon_copyright(copy) and
+                APACHE_LICENSE in local_license
             )
             has_chromium_copyright = (
-                    CHROMIUM_COPYRIGHT in copy and
-                    CHROMIUM_LICENSE in local_license
+                CHROMIUM_COPYRIGHT in copy and
+                CHROMIUM_LICENSE in local_license
+            )
+            has_suse_copyright = (
+                SUSE_COPYRIGHT in copy and
+                APACHE_LICENSE in local_license
             )
             has_tuntap_copyright = (
-                    TUNTAP_COPYRIGHT in copy and
-                    TUNTAP_LICENSE in local_license
+                TUNTAP_COPYRIGHT in copy and
+                TUNTAP_LICENSE in local_license
             )
             return (
-                    has_amazon_copyright or
-                    has_chromium_copyright or
-                    has_tuntap_copyright
+                has_amazon_copyright or
+                has_chromium_copyright or
+                has_suse_copyright or
+                has_tuntap_copyright
             )
     return True
 
