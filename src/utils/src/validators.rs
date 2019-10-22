@@ -11,6 +11,7 @@ const MIN_INSTANCE_ID_LEN: usize = 1;
 pub enum Error {
     InvalidChar(char, usize),        // (char, position)
     InvalidLen(usize, usize, usize), // (length, min, max)
+    InvalidSeccompValue(String),
 }
 
 impl fmt::Display for Error {
@@ -21,6 +22,11 @@ impl fmt::Display for Error {
                 f,
                 "invalid len ({});  the length must be between {} and {}",
                 len, min_len, max_len
+            ),
+            Error::InvalidSeccompValue(ref arg) => write!(
+                f,
+                "'{}' isn't a valid value for 'seccomp-level'. Must  be 0, 1 or 2.",
+                arg
             ),
         }
     }
@@ -40,6 +46,15 @@ pub fn validate_instance_id(input: &str) -> Result<(), Error> {
         if !(c == '-' || c.is_alphanumeric()) {
             return Err(Error::InvalidChar(c, i));
         }
+    }
+    Ok(())
+}
+
+/// Checks that the seccomp level value is 0, 1 or 2.
+pub fn validate_seccomp_level(seccomp_level: &str) -> Result<(), Error> {
+    let seccomp_values = ["0", "1", "2"];
+    if !seccomp_values.contains(&seccomp_level) {
+        return Err(Error::InvalidSeccompValue(seccomp_level.to_string()));
     }
     Ok(())
 }
@@ -70,6 +85,23 @@ mod tests {
                 MIN_INSTANCE_ID_LEN,
                 MAX_INSTANCE_ID_LEN
             )
+        );
+    }
+
+    #[test]
+    fn test_validate_seccomp_level() {
+        assert_eq!(
+            format!("{}", validate_seccomp_level("3").unwrap_err()),
+            "'3' isn't a valid value for 'seccomp-level'. Must  be 0, 1 or 2."
+        );
+        assert!(validate_seccomp_level("0").is_ok());
+        assert_eq!(
+            format!("{}", validate_seccomp_level("foo").unwrap_err()),
+            "'foo' isn't a valid value for 'seccomp-level'. Must  be 0, 1 or 2."
+        );
+        assert_eq!(
+            validate_seccomp_level("foo").unwrap_err(),
+            Error::InvalidSeccompValue("foo".to_string())
         );
     }
 }

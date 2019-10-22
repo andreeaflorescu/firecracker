@@ -2,19 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 extern crate backtrace;
-#[macro_use(crate_version, crate_authors)]
-extern crate clap;
-extern crate api_server;
 extern crate libc;
-extern crate utils;
+
+extern crate api_server;
 #[macro_use]
 extern crate logger;
 extern crate mmds;
 extern crate seccomp;
+extern crate utils;
 extern crate vmm;
 
 use backtrace::Backtrace;
-use clap::{App, Arg};
 
 use std::fs;
 use std::io;
@@ -28,15 +26,17 @@ use std::thread;
 use api_server::{ApiServer, Error, VmmRequest, VmmResponse};
 use logger::{Metric, LOGGER, METRICS};
 use mmds::MMDS;
+use utils::arg_parser::{ArgInfo, ArgParser, Help};
 use utils::eventfd::EventFd;
 use utils::terminal::Terminal;
-use utils::validators::validate_instance_id;
+use utils::validators::{validate_instance_id, validate_seccomp_level};
 use vmm::signal_handler::register_signal_handlers;
 use vmm::vmm_config::instance_info::{InstanceInfo, InstanceState};
 use vmm::{EventLoopExitReason, Vmm};
 
 const DEFAULT_API_SOCK_PATH: &str = "/tmp/firecracker.socket";
 const DEFAULT_INSTANCE_ID: &str = "anonymous-instance";
+const FIRECRACKER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn main() {
     LOGGER
@@ -76,107 +76,102 @@ fn main() {
         }
     }));
 
-    let cmd_arguments = App::new("firecracker")
-        .version(crate_version!())
-        .author(crate_authors!())
-        .about("Launch a microvm.")
+    let mut arg_parser = ArgParser::default().header(
+        format!("Firecracker v{}. \n\
+                 Launch a microVM.", FIRECRACKER_VERSION))
         .arg(
-            Arg::with_name("api_sock")
-                .long("api-sock")
-                .help("Path to unix domain socket used by the API")
-                .takes_value(true)
-                .default_value(DEFAULT_API_SOCK_PATH),
-        )
-        .arg(
-            Arg::with_name("id")
-                .long("id")
-                .help("MicroVM unique identifier")
-                .takes_value(true)
-                .default_value(DEFAULT_INSTANCE_ID)
-                .validator(|s: String| -> Result<(), String> {
-                    validate_instance_id(&s).map_err(|e| format!("{}", e))
-                }),
-        )
-        .arg(
-            Arg::with_name("seccomp-level")
-                .long("seccomp-level")
-                .help(
-                    "Level of seccomp filtering.\n
-                            - Level 0: No filtering.\n
-                            - Level 1: Seccomp filtering by syscall number.\n
-                            - Level 2: Seccomp filtering by syscall number and argument values.\n
-                        ",
-                )
-                .takes_value(true)
-                .default_value("2")
-                .possible_values(&["0", "1", "2"]),
-        )
-        .arg(
-            Arg::with_name("start-time-us")
-                .long("start-time-us")
-                .takes_value(true)
-                .hidden(true),
-        )
-        .arg(
-            Arg::with_name("start-time-cpu-us")
-                .long("start-time-cpu-us")
-                .takes_value(true)
-                .hidden(true),
-        )
-        .arg(
-            Arg::with_name("config-file")
-                .long("config-file")
-                .help("Path to a file that contains the microVM configuration in JSON format.")
-                .takes_value(true)
-                .required(false),
-        )
-        .arg(
-            Arg::with_name("no-api")
-                .long("no-api")
-                .help("Optional parameter which allows starting and using a microVM without an active API socket.")
-                .takes_value(false)
-                .required(false)
-                .requires("config-file")
-        )
-        .get_matches();
+        ArgInfo::new("api-sock")
+            .takes_value(true)
+            .default_value(DEFAULT_API_SOCK_PATH)
+            .help("Path to unix domain socket used by the API"),
+    ).arg(
+        ArgInfo::new("id")
+            .takes_value(true)
+            .default_value(DEFAULT_INSTANCE_ID)
+            .help("MicroVM unique identifier"),
+    ).arg(
+        ArgInfo::new("seccomp-level")
+            .takes_value(true)
+            .default_value("2")
+            .help(
+                "Level of seccomp filtering that will be passed to executed path as \
+                argument.\n
+                    - Level 0: No filtering.\n
+                    - Level 1: Seccomp filtering by syscall number.\n
+                    - Level 2: Seccomp filtering by syscall number and argument values.\n
+                ",
+            ),
+    ).arg(
+        ArgInfo::new("start-time-us")
+            .takes_value(true),
+    ).arg(
+        ArgInfo::new("start-time-cpu-us")
+            .takes_value(true),
+    ).arg(
+        ArgInfo::new("config-file")
+            .takes_value(true)
+            .help("Path to a file that contains the microVM configuration in JSON format."),
+    ).arg(ArgInfo::new(
+        "no-api")
+        .takes_value(false)
+        .requires("config-file")
+        .help("Optional parameter which allows starting and using a microVM without an active API socket.")
+    );
 
-    let bind_path = cmd_arguments
-        .value_of("api_sock")
+    match arg_parser.parse() {
+        Err(err) => {
+            error!(
+                "Arguments parsing error: {} \n\n\
+                 For more information try --help.",
+                err
+            );
+            process::exit(i32::from(vmm::FC_EXIT_CODE_ARG_PARSING));
+        }
+        Ok(Help::Provided) => {
+            println!("{}", arg_parser.format_help());
+            process::exit(i32::from(vmm::FC_EXIT_CODE_OK));
+        }
+        _ => {}
+    }
+
+    let bind_path = arg_parser
+        .arg_value("api-sock")
         .map(PathBuf::from)
         .expect("Missing argument: api_sock");
 
-    // It's safe to unwrap here because clap's been provided with a default value
-    let instance_id = cmd_arguments.value_of("id").unwrap().to_string();
+    // It's safe to unwrap here because the field's been provided with a default value.
+    let instance_id = arg_parser.arg_value("id").unwrap();
+    validate_instance_id(instance_id.as_str()).expect("Invalid instance ID");
 
-    // It's safe to unwrap here because clap's been provided with a default value,
-    // and allowed values are guaranteed to parse to u32.
-    let seccomp_level = cmd_arguments
-        .value_of("seccomp-level")
-        .unwrap()
-        .parse::<u32>()
-        .unwrap();
+    // It's safe to unwrap here because the field's been provided with a default value.
+    let seccomp_level_str = arg_parser.arg_value("seccomp-level").unwrap();
+    if let Err(err) = validate_seccomp_level(seccomp_level_str.as_str()) {
+        panic!("Invalid seccomp-level: {}", err);
+    };
+    // Also safe to unwrap because allowed values are guaranteed to parse to u32.
+    let seccomp_level = seccomp_level_str.parse::<u32>().unwrap();
 
-    let start_time_us = cmd_arguments.value_of("start-time-us").map(|s| {
+    let start_time_us = arg_parser.value("start-time-us").map(|s| {
         s.parse::<u64>()
             .expect("'start-time-us' parameter expected to be of 'u64' type.")
     });
 
-    let start_time_cpu_us = cmd_arguments.value_of("start-time-cpu-us").map(|s| {
+    let start_time_cpu_us = arg_parser.value("start-time-cpu-us").map(|s| {
         s.parse::<u64>()
             .expect("'start-time-cpu_us' parameter expected to be of 'u64' type.")
     });
 
-    let vmm_config_json = cmd_arguments
-        .value_of("config-file")
+    let vmm_config_json = arg_parser
+        .value("config-file")
         .map(fs::read_to_string)
         .map(|x| x.expect("Unable to open or read from the configuration file"));
 
-    let no_api = cmd_arguments.is_present("no-api");
+    let no_api = arg_parser.value("no-api").is_some();
 
     let api_shared_info = Arc::new(RwLock::new(InstanceInfo {
         state: InstanceState::Uninitialized,
-        id: instance_id,
-        vmm_version: crate_version!().to_string(),
+        id: instance_id.clone(),
+        vmm_version: FIRECRACKER_VERSION.to_string(),
     }));
 
     let request_event_fd = EventFd::new(libc::EFD_NONBLOCK)
