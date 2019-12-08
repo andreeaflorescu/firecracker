@@ -13,7 +13,7 @@ use std::ptr::null;
 use std::{io, result};
 
 use super::super::DeviceType;
-use super::super::InitrdInfo;
+use super::super::InitrdConfig;
 use super::get_fdt_addr;
 use super::gic::GICDevice;
 use super::layout::FDT_MAX_SIZE;
@@ -90,7 +90,7 @@ pub fn create_fdt<T: DeviceInfoForFDT + Clone + Debug>(
     cmdline: &CStr,
     device_info: Option<&HashMap<(DeviceType, String), T>>,
     gic_device: &Box<dyn GICDevice>,
-    initrd: &InitrdInfo,
+    initrd: &Option<InitrdConfig>,
 ) -> Result<(Vec<u8>)> {
     // Alocate stuff necessary for the holding the blob.
     let mut fdt = vec![0; FDT_MAX_SIZE];
@@ -343,17 +343,27 @@ fn create_memory_node(fdt: &mut Vec<u8>, guest_mem: &GuestMemory) -> Result<()> 
     Ok(())
 }
 
-fn create_chosen_node(fdt: &mut Vec<u8>, cmdline: &CStr, initrd: &InitrdInfo) -> Result<()> {
+fn create_chosen_node(
+    fdt: &mut Vec<u8>,
+    cmdline: &CStr,
+    initrd: &Option<InitrdConfig>,
+) -> Result<()> {
     append_begin_node(fdt, "chosen")?;
     append_property_cstring(fdt, "bootargs", cmdline)?;
-    if initrd.size > 0 {
-        append_property_u64(fdt, "linux,initrd-start", initrd.address.raw_value() as u64)?;
+
+    if let Some(initrd_config) = initrd {
+        append_property_u64(
+            fdt,
+            "linux,initrd-start",
+            initrd_config.address.raw_value() as u64,
+        )?;
         append_property_u64(
             fdt,
             "linux,initrd-end",
-            initrd.address.raw_value() + initrd.size as u64,
+            initrd_config.address.raw_value() + initrd_config.size as u64,
         )?;
     }
+
     append_end_node(fdt)?;
 
     Ok(())
@@ -585,17 +595,13 @@ mod tests {
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
         let gic = create_gic(&vm, 1).unwrap();
-        let initrd = super::InitrdInfo {
-            address: GuestAddress(0),
-            size: 0,
-        };
         assert!(create_fdt(
             &mem,
             vec![0],
             &CString::new("console=tty0").unwrap(),
             Some(&dev_info),
             &gic,
-            &initrd,
+            &None,
         )
         .is_ok())
     }
@@ -607,17 +613,13 @@ mod tests {
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
         let gic = create_gic(&vm, 1).unwrap();
-        let initrd = super::InitrdInfo {
-            address: GuestAddress(0),
-            size: 0,
-        };
         let mut dtb = create_fdt(
             &mem,
             vec![0],
             &CString::new("console=tty0").unwrap(),
             None::<&std::collections::HashMap<(DeviceType, std::string::String), MMIODeviceInfo>>,
             &gic,
-            &initrd,
+            &None,
         )
         .unwrap();
 
@@ -656,7 +658,7 @@ mod tests {
         let kvm = Kvm::new().unwrap();
         let vm = kvm.create_vm().unwrap();
         let gic = create_gic(&vm, 1).unwrap();
-        let initrd = InitrdInfo {
+        let initrd = InitrdConfig {
             address: GuestAddress(0x10000000),
             size: 0x1000,
         };
@@ -667,7 +669,7 @@ mod tests {
             &CString::new("console=tty0").unwrap(),
             None::<&std::collections::HashMap<(DeviceType, std::string::String), MMIODeviceInfo>>,
             &gic,
-            &initrd,
+            &Some(initrd),
         )
         .unwrap();
 

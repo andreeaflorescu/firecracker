@@ -72,12 +72,12 @@ impl std::fmt::Debug for Error {
 }
 
 /// Errors associated with loading initrd
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum LoadInitrdError {
     /// Cannot load initrd due to an invalid memory configuration.
     LoadInitrd,
     /// Cannot load initrd due to an invalid image.
-    ReadInitrd,
+    ReadInitrd(io::Error),
 }
 
 /// It's convenient to automatically convert `LoadInitrdError`s
@@ -176,11 +176,10 @@ impl Display for LoadInitrdError {
         use self::LoadInitrdError::*;
         match *self {
             LoadInitrd => write!(f, "Failed to load the initrd image to guest memory"),
-            ReadInitrd => write!(f, "Failed to read the initrd image"),
+            ReadInitrd(ref e) => write!(f, "Failed to read the initrd image. {}", e),
         }
     }
 }
-
 impl Display for StartMicrovmError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         use self::StartMicrovmError::*;

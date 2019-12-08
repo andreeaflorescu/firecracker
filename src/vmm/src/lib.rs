@@ -58,7 +58,7 @@ use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
 #[cfg(target_arch = "aarch64")]
 use arch::DeviceType;
-use arch::InitrdInfo;
+use arch::InitrdConfig;
 #[cfg(target_arch = "x86_64")]
 use device_manager::legacy::PortIODeviceManager;
 #[cfg(target_arch = "aarch64")]
@@ -1011,7 +1011,7 @@ impl Vmm {
     fn load_initrd<F>(
         vm_memory: &GuestMemory,
         image: &mut F,
-    ) -> std::result::Result<InitrdInfo, LoadInitrdError>
+    ) -> std::result::Result<InitrdConfig, LoadInitrdError>
     where
         F: Read + Seek,
     {
@@ -1020,11 +1020,17 @@ impl Vmm {
         let size: usize;
         // Get the image size
         match image.seek(SeekFrom::End(0)) {
-            Ok(0) | Err(..) => return Err(ReadInitrd),
+            Err(e) => return Err(ReadInitrd(e)),
+            Ok(0) => {
+                return Err(ReadInitrd(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "Initrd image seek returned a size of zero",
+                )))
+            }
             Ok(s) => size = s as usize,
         };
         // Go back to the image start
-        image.seek(SeekFrom::Start(0)).map_err(|_| ReadInitrd)?;
+        image.seek(SeekFrom::Start(0)).map_err(ReadInitrd)?;
 
         // Get the target address
         let address = arch::initrd_load_addr(vm_memory, size).map_err(|_| LoadInitrd)?;
@@ -1034,7 +1040,7 @@ impl Vmm {
             .read_to_memory(GuestAddress(address), image, size)
             .map_err(|_| LoadInitrd)?;
 
-        Ok(InitrdInfo {
+        Ok(InitrdConfig {
             address: GuestAddress(address),
             size,
         })
@@ -1050,19 +1056,18 @@ impl Vmm {
 
         let kernel_config = self.kernel_config.as_ref().ok_or(MissingKernelConfig)?;
 
-        let initrd = match &kernel_config.initrd_file {
+        let initrd: Option<InitrdConfig> = match &kernel_config.initrd_file {
             Some(f) => {
                 let initrd_file = f.try_clone();
                 if initrd_file.is_err() {
-                    return Err(InitrdLoader(LoadInitrdError::ReadInitrd));
+                    return Err(InitrdLoader(LoadInitrdError::ReadInitrd(io::Error::from(
+                        io::ErrorKind::InvalidData,
+                    ))));
                 }
-
-                Vmm::load_initrd(vm_memory, &mut initrd_file.unwrap())?
+                let res = Vmm::load_initrd(vm_memory, &mut initrd_file.unwrap())?;
+                Some(res)
             }
-            None => InitrdInfo {
-                address: GuestAddress(0),
-                size: 0,
-            },
+            None => None,
         };
 
         #[cfg(target_arch = "x86_64")]
@@ -2931,7 +2936,10 @@ mod tests {
         let image = make_test_bin();
         let res = Vmm::load_initrd(&gm, &mut Cursor::new(&image));
         assert!(res.is_err());
-        assert_eq!(LoadInitrdError::LoadInitrd, res.err().unwrap());
+        assert_eq!(
+            LoadInitrdError::LoadInitrd.to_string(),
+            res.err().unwrap().to_string()
+        );
     }
 
     #[test]
@@ -2941,7 +2949,10 @@ mod tests {
 
         let res = Vmm::load_initrd(&gm, &mut Cursor::new(&image));
         assert!(res.is_err());
-        assert_eq!(LoadInitrdError::LoadInitrd, res.err().unwrap());
+        assert_eq!(
+            LoadInitrdError::LoadInitrd.to_string(),
+            res.err().unwrap().to_string()
+        );
     }
 
     #[test]
@@ -3035,14 +3046,7 @@ mod tests {
         #[cfg(target_arch = "aarch64")]
         assert!(vmm.vm.setup_irqchip(1).is_ok());
 
-        let err = vmm
-            .configure_system(&Vec::new())
-            .expect_err("Expected an initrd load error");
-
-        assert_eq!(
-            err.to_string(),
-            StartMicrovmError::InitrdLoader(LoadInitrdError::ReadInitrd).to_string()
-        );
+        assert!(vmm.configure_system(&Vec::new()).is_err());
     }
 
     #[test]

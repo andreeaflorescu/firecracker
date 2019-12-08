@@ -51,7 +51,7 @@ pub enum DeviceType {
 }
 
 /// Type for passing information about the initrd in the guest memory.
-pub struct InitrdInfo {
+pub struct InitrdConfig {
     /// Load address of initrd in guest memory
     pub address: memory_model::GuestAddress,
     /// Size of initrd in guest memory
