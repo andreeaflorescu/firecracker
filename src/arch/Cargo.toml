@@ -10,6 +10,10 @@ libc = ">=0.2.39"
 
 arch_gen = { path = "../arch_gen" }
 memory_model = { path = "../memory_model" }
+# Temporary dependencies. This should be removed once we refactor the fdt
+# implementation so that it does not receive all noded configuration at
+# create time.
+kernel = { path = "../kernel" }
 
 [dev-dependencies]
 utils = { path = "../utils" }

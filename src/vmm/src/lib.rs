@@ -58,7 +58,7 @@ use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
 #[cfg(target_arch = "aarch64")]
 use arch::DeviceType;
-use arch::InitrdConfig;
+use kernel::loader::{InitrdConfig, load_initrd};
 #[cfg(target_arch = "x86_64")]
 use device_manager::legacy::PortIODeviceManager;
 #[cfg(target_arch = "aarch64")]
@@ -97,7 +97,7 @@ use vmm_config::net::{
 use vmm_config::vsock::{VsockDeviceConfig, VsockError};
 use vstate::{KvmContext, Vcpu, VcpuEvent, VcpuHandle, VcpuResponse, Vm};
 
-pub use error::{ErrorKind, LoadInitrdError, StartMicrovmError, VmmActionError};
+pub use error::{ErrorKind, StartMicrovmError, VmmActionError};
 
 const WRITE_METRICS_PERIOD_SECONDS: u64 = 60;
 
@@ -1002,50 +1002,6 @@ impl Vmm {
         Ok(entry_addr)
     }
 
-    /// Loads the initrd from a file into the given memory slice.
-    ///
-    /// * `vm_memory` - The guest memory the initrd is written to.
-    /// * `image` - The initrd image.
-    ///
-    /// Returns the result of initrd loading
-    fn load_initrd<F>(
-        vm_memory: &GuestMemory,
-        image: &mut F,
-    ) -> std::result::Result<InitrdConfig, LoadInitrdError>
-    where
-        F: Read + Seek,
-    {
-        use LoadInitrdError::*;
-
-        let size: usize;
-        // Get the image size
-        match image.seek(SeekFrom::End(0)) {
-            Err(e) => return Err(ReadInitrd(e)),
-            Ok(0) => {
-                return Err(ReadInitrd(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "Initrd image seek returned a size of zero",
-                )))
-            }
-            Ok(s) => size = s as usize,
-        };
-        // Go back to the image start
-        image.seek(SeekFrom::Start(0)).map_err(ReadInitrd)?;
-
-        // Get the target address
-        let address = arch::initrd_load_addr(vm_memory, size).map_err(|_| LoadInitrd)?;
-
-        // Load the image into memory
-        vm_memory
-            .read_to_memory(GuestAddress(address), image, size)
-            .map_err(|_| LoadInitrd)?;
-
-        Ok(InitrdConfig {
-            address: GuestAddress(address),
-            size,
-        })
-    }
-
     fn configure_system(&self, vcpus: &[Vcpu]) -> std::result::Result<(), StartMicrovmError> {
         use StartMicrovmError::*;
 
@@ -1058,13 +1014,8 @@ impl Vmm {
 
         let initrd: Option<InitrdConfig> = match &kernel_config.initrd_file {
             Some(f) => {
-                let initrd_file = f.try_clone();
-                if initrd_file.is_err() {
-                    return Err(InitrdLoader(LoadInitrdError::ReadInitrd(io::Error::from(
-                        io::ErrorKind::InvalidData,
-                    ))));
-                }
-                let res = Vmm::load_initrd(vm_memory, &mut initrd_file.unwrap())?;
+                let mut initrd_file = f.try_clone().map_err(|e| StartMicrovmError::InitrdLoader(kernel_loader::Error::ReadInitrd(e)))?;
+                let res = load_initrd(vm_memory, &mut initrd_file, arch::PAGE_SIZE).map_err(StartMicrovmError::InitrdLoader)?;
                 Some(res)
             }
             None => None,

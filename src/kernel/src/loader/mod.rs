@@ -10,8 +10,9 @@
 use std;
 use std::ffi::CString;
 use std::fmt;
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{self, Read, Seek, SeekFrom};
 use std::mem;
+use std::cmp::PartialEq;
 
 use super::cmdline::Error as CmdlineError;
 use memory_model::{Address, GuestAddress, GuestMemory};
@@ -22,7 +23,7 @@ use utils::structs::read_struct;
 // Add here any other architecture that uses as kernel image an ELF file.
 mod elf;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum Error {
     BigEndianElfOnLittle,
     InvalidElfMagicNumber,
@@ -35,33 +36,160 @@ pub enum Error {
     SeekKernelStart,
     SeekKernelImage,
     SeekProgramHeader,
+    /// Failed to compute initrd address.
+    InitrdAddress,
+    /// Cannot load initrd due to an invalid memory configuration.
+    LoadInitrd,
+    /// Cannot load initrd due to an invalid image.
+    ReadInitrd(io::Error),
+}
+
+impl PartialEq for Error {
+    fn eq(&self, other: &Error) -> bool {
+        match self {
+            Error::ReadInitrd(_) => {
+                format!("{:?}", self) == format!("{:?}", other)
+            }
+            _ => self == other
+        }
+    }
+}
+
+/// Type for passing information about the initrd in the guest memory.
+pub struct InitrdConfig {
+    /// Load address of initrd in guest memory
+    pub address: memory_model::GuestAddress,
+    /// Size of initrd in guest memory
+    pub size: usize,
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{}",
-            match *self {
-                Error::BigEndianElfOnLittle => "Unsupported ELF File byte order",
-                Error::InvalidElfMagicNumber => "Invalid ELF magic number",
-                Error::InvalidEntryAddress => "Invalid entry address found in ELF header",
-                Error::InvalidProgramHeaderSize => "Invalid ELF program header size",
-                Error::InvalidProgramHeaderOffset => "Invalid ELF program header offset",
-                Error::InvalidProgramHeaderAddress => "Invalid ELF program header address",
-                Error::ReadKernelDataStruct(ref e) => e,
-                Error::ReadKernelImage => "Failed to write kernel image to guest memory",
-                Error::SeekKernelStart => {
-                    "Failed to seek to file offset as pointed by the ELF program header"
-                }
-                Error::SeekKernelImage => "Failed to seek to offset of kernel image",
-                Error::SeekProgramHeader => "Failed to seek to ELF program header",
+
+        match *self {
+            Error::BigEndianElfOnLittle => {
+                write!(f, "Unsupported ELF File byte order")
+            },
+            Error::InvalidElfMagicNumber => {
+                write!(f, "Invalid ELF magic number")
+            },
+            Error::InvalidEntryAddress => {
+                write!(f, "Invalid entry address found in ELF header")
+            },
+            Error::InvalidProgramHeaderSize => {
+                write!(f, "Invalid ELF program header size")
+            },
+            Error::InvalidProgramHeaderOffset => {
+                write!(f, "Invalid ELF program header offset")
+            },
+            Error::InvalidProgramHeaderAddress => {
+                write!(f, "Invalid ELF program header address")
+            },
+            Error::ReadKernelDataStruct(ref e) => {
+                write!(f, "{}", e)
+            },
+            Error::ReadKernelImage => {
+                write!(f, "Failed to write kernel image to guest memory")
+            },
+            Error::SeekKernelStart => {
+                write!(f, "Failed to seek to file offset as pointed by the ELF program header")
             }
-        )
+            Error::SeekKernelImage => {
+                write!(f, "Failed to seek to offset of kernel image")
+            },
+            Error::SeekProgramHeader => {
+                write!(f, "Failed to seek to ELF program header")
+            },
+            Error::InitrdAddress => {
+                write!(f, "Failed to compute initrd address")
+            },
+            Error::LoadInitrd => {
+                write!(f, "Cannot load initrd due to an invalid memory configuration")
+            },
+            Error::ReadInitrd(ref io_err) => {
+                write!(f, "Cannot load initrd due to an invalid image. {}", io_err)
+            },
+        }
     }
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
+
+/// Returns the memory address where to load the initrd.
+///
+/// The returned address is aligned to `pagesize`.
+#[cfg(target_arch = "aarch64")]
+fn initrd_load_addr(guest_mem: &GuestMemory, initrd_size: usize, page_size: usize) -> Result<u64> {
+    let round_to_pagesize = |size| (size + (pagesize - 1)) & !(page_size - 1);
+    match GuestAddress(get_fdt_addr(&guest_mem)).checked_sub(round_to_pagesize(initrd_size) as u64)
+        {
+            Some(offset) => {
+                if guest_mem.address_in_range(offset) {
+                    return Ok(offset.raw_value());
+                } else {
+                    return Err(Error::InitrdAddress);
+                }
+            }
+            None => return Err(Error::InitrdAddress),
+        }
+}
+
+/// Returns the memory address where to load the initrd.
+/// The returned address is aligned to `pagesize`.
+#[cfg(target_arch = "x86_64")]
+fn initrd_load_addr(guest_mem: &GuestMemory, initrd_size: usize, page_size: usize) -> Result<u64> {
+    let lowmem_size: usize = guest_mem.region_size(0).map_err(|_| Error::InitrdAddress)?;
+
+    if lowmem_size < initrd_size {
+        return Err(Error::InitrdAddress);
+    }
+
+    let align_to_pagesize = |address| address & !(page_size - 1);
+    Ok(align_to_pagesize(lowmem_size - initrd_size) as u64)
+}
+
+/// Loads an initrd image into guest memory.
+///
+/// # Arguments
+/// * `vm_memory` - The guest memory the initrd is written to.
+/// * `image` - The initrd image.
+/// * `page_size` - The guest memory page size.
+///
+/// Returns the result of initrd loading
+pub fn load_initrd<F>(
+    vm_memory: &GuestMemory,
+    image: &mut F,
+    page_size: usize,
+) -> Result<InitrdConfig>
+    where
+        F: Read + Seek,
+{
+    let image_size: usize = match image.seek(SeekFrom::End(0)) {
+        Err(e) => return Err(Error::ReadInitrd(e)),
+        Ok(0) => {
+            return Err(Error::ReadInitrd(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Initrd image seek returned a size of zero",
+            )))
+        }
+        Ok(s) => s as usize,
+    };
+    // Go back to the image start
+    image.seek(SeekFrom::Start(0)).map_err(Error::ReadInitrd)?;
+
+    // Get the target address
+    let address = initrd_load_addr(vm_memory, image_size, page_size).map_err(|_| Error::LoadInitrd)?;
+
+    // Load the image into memory
+    vm_memory
+        .read_to_memory(GuestAddress(address), image, image_size)
+        .map_err(|_| Error::LoadInitrd)?;
+
+    Ok(InitrdConfig {
+        address: GuestAddress(address),
+        size: image_size,
+    })
+}
 
 /// Loads a kernel from a vmlinux elf image to a slice
 ///

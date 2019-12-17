@@ -18,7 +18,7 @@ use std::mem;
 
 use arch_gen::x86::bootparam::{boot_params, E820_RAM};
 use memory_model::{Address, ByteValued, GuestAddress, GuestMemory};
-use InitrdConfig;
+use kernel::loader::InitrdConfig;
 
 // This is a workaround to the Rust enforcement specifying that any implementation of a foreign
 // trait (in this case `ByteValued`) where:
@@ -42,8 +42,6 @@ pub enum Error {
     ZeroPagePastRamEnd,
     /// Error writing the zero page of guest memory.
     ZeroPageSetup,
-    /// Failed to compute initrd address.
-    InitrdAddress,
 }
 
 // Where BIOS/VGA magic would live on a real PC.
@@ -74,18 +72,6 @@ pub fn arch_memory_regions(size: usize) -> Vec<(GuestAddress, usize)> {
 /// Returns the memory address where the kernel could be loaded.
 pub fn get_kernel_start() -> u64 {
     layout::HIMEM_START
-}
-
-/// Returns the memory address where the initrd could be loaded.
-pub fn initrd_load_addr(guest_mem: &GuestMemory, initrd_size: usize) -> super::Result<u64> {
-    let lowmem_size: usize = guest_mem.region_size(0).map_err(|_| Error::InitrdAddress)?;
-
-    if lowmem_size < initrd_size {
-        return Err(Error::InitrdAddress);
-    }
-
-    let align_to_pagesize = |address| address & !(super::PAGE_SIZE - 1);
-    Ok(align_to_pagesize(lowmem_size - initrd_size) as u64)
 }
 
 /// Configures the system and should be called once per vm before starting vcpu threads.

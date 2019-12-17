@@ -17,6 +17,7 @@ use std::ffi::CStr;
 use std::fmt::Debug;
 
 use self::gic::GICDevice;
+use kernel::loader::InitrConfig;
 use memory_model::{Address, GuestAddress, GuestMemory};
 
 /// Errors thrown while configuring aarch64 system.
@@ -24,8 +25,6 @@ use memory_model::{Address, GuestAddress, GuestMemory};
 pub enum Error {
     /// Failed to create a Flattened Device Tree for this aarch64 microVM.
     SetupFDT(fdt::Error),
-    /// Failed to compute the initrd address.
-    InitrdAddress,
 }
 
 /// The start of the memory area reserved for MMIO devices.
@@ -58,7 +57,7 @@ pub fn configure_system<T: DeviceInfoForFDT + Clone + Debug>(
     vcpu_mpidr: Vec<u64>,
     device_info: Option<&HashMap<(DeviceType, String), T>>,
     gic_device: &Box<dyn GICDevice>,
-    initrd: &Option<super::InitrdConfig>,
+    initrd: &Option<InitrdConfig>,
 ) -> super::Result<()> {
     fdt::create_fdt(
         guest_mem,
@@ -75,22 +74,6 @@ pub fn configure_system<T: DeviceInfoForFDT + Clone + Debug>(
 /// Returns the memory address where the kernel could be loaded.
 pub fn get_kernel_start() -> u64 {
     layout::DRAM_MEM_START
-}
-
-/// Returns the memory address where the initrd could be loaded.
-pub fn initrd_load_addr(guest_mem: &GuestMemory, initrd_size: usize) -> super::Result<u64> {
-    let round_to_pagesize = |size| (size + (super::PAGE_SIZE - 1)) & !(super::PAGE_SIZE - 1);
-    match GuestAddress(get_fdt_addr(&guest_mem)).checked_sub(round_to_pagesize(initrd_size) as u64)
-    {
-        Some(offset) => {
-            if guest_mem.address_in_range(offset) {
-                return Ok(offset.raw_value());
-            } else {
-                return Err(Error::InitrdAddress);
-            }
-        }
-        None => return Err(Error::InitrdAddress),
-    }
 }
 
 // Auxiliary function to get the address where the device tree blob is loaded.

@@ -9,6 +9,7 @@ extern crate kvm_ioctls;
 extern crate libc;
 
 extern crate arch_gen;
+extern crate kernel;
 extern crate memory_model;
 
 use std::fmt;
@@ -20,7 +21,7 @@ pub mod aarch64;
 
 #[cfg(target_arch = "aarch64")]
 pub use aarch64::{
-    arch_memory_regions, configure_system, get_kernel_start, initrd_load_addr,
+    arch_memory_regions, configure_system, get_kernel_start,
     layout::CMDLINE_MAX_SIZE, layout::IRQ_BASE, layout::IRQ_MAX, Error, MMIO_MEM_START,
 };
 
@@ -30,7 +31,7 @@ pub mod x86_64;
 
 #[cfg(target_arch = "x86_64")]
 pub use x86_64::{
-    arch_memory_regions, configure_system, get_kernel_start, initrd_load_addr,
+    arch_memory_regions, configure_system, get_kernel_start,
     layout::CMDLINE_MAX_SIZE, layout::IRQ_BASE, layout::IRQ_MAX, Error, MMIO_MEM_START,
 };
 
@@ -48,14 +49,6 @@ pub enum DeviceType {
     /// Device Type: RTC.
     #[cfg(target_arch = "aarch64")]
     RTC,
-}
-
-/// Type for passing information about the initrd in the guest memory.
-pub struct InitrdConfig {
-    /// Load address of initrd in guest memory
-    pub address: memory_model::GuestAddress,
-    /// Size of initrd in guest memory
-    pub size: usize,
 }
 
 /// Default (smallest) memory page size for the supported architectures.

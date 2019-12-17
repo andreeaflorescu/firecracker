@@ -71,23 +71,6 @@ impl std::fmt::Debug for Error {
     }
 }
 
-/// Errors associated with loading initrd
-#[derive(Debug)]
-pub enum LoadInitrdError {
-    /// Cannot load initrd due to an invalid memory configuration.
-    LoadInitrd,
-    /// Cannot load initrd due to an invalid image.
-    ReadInitrd(io::Error),
-}
-
-/// It's convenient to automatically convert `LoadInitrdError`s
-/// to `StartMicrovmError`s.
-impl std::convert::From<LoadInitrdError> for StartMicrovmError {
-    fn from(e: LoadInitrdError) -> StartMicrovmError {
-        StartMicrovmError::InitrdLoader(e)
-    }
-}
-
 /// Errors associated with starting the instance.
 // TODO: add error kind to these variants because not all these errors are user or internal.
 #[derive(Debug)]
@@ -117,7 +100,7 @@ pub enum StartMicrovmError {
     /// Memory regions are overlapping or mmap fails.
     GuestMemory(GuestMemoryError),
     /// Cannot load initrd.
-    InitrdLoader(self::LoadInitrdError),
+    InitrdLoader(kernel_loader::Error),
     /// The kernel command line is invalid.
     KernelCmdline(String),
     /// Cannot load kernel due to invalid memory configuration or invalid kernel image.
@@ -171,15 +154,6 @@ impl std::convert::From<kernel::cmdline::Error> for StartMicrovmError {
     }
 }
 
-impl Display for LoadInitrdError {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        use self::LoadInitrdError::*;
-        match *self {
-            LoadInitrd => write!(f, "Failed to load the initrd image to guest memory"),
-            ReadInitrd(ref e) => write!(f, "Failed to read the initrd image. {}", e),
-        }
-    }
-}
 impl Display for StartMicrovmError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         use self::StartMicrovmError::*;

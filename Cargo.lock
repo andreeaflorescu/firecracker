@@ -37,6 +37,7 @@ version = "0.1.0"
 dependencies = [
  "arch_gen",
  "device_tree",
+ "kernel",
  "kvm-bindings",
  "kvm-ioctls",
  "libc",
