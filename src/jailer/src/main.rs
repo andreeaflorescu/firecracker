@@ -323,10 +323,9 @@ fn to_cstring<T: AsRef<Path>>(path: T) -> Result<CString> {
 fn main() {
     sanitize_process();
 
-    let app = build_app();
-    let mut arg_parser = app.clone().get_parser();
+    let mut app = build_app();
 
-    match arg_parser.parse() {
+    match app.parse_cmdline_args() {
         Err(err) => {
             println!(
                 "Arguments parsing error: {} \n\n\
@@ -336,15 +335,17 @@ fn main() {
             process::exit(1);
         }
         _ => {
-            if arg_parser.is_present("help") {
-                println!("{}", app.format_help());
-                process::exit(0);
+            if let Some(help) = app.arguments().value_as_bool("help") {
+                if help {
+                    println!("{}", app.format_help());
+                    process::exit(0);
+                }
             }
         }
     }
 
     Env::new(
-        arg_parser,
+        app.arguments(),
         utils::time::get_time(utils::time::ClockType::Monotonic) / 1000,
         utils::time::get_time(utils::time::ClockType::ProcessCpu) / 1000,
     )

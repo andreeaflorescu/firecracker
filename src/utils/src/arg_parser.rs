@@ -56,7 +56,7 @@ impl fmt::Display for Error {
 /// * `header` - This is used for storing general information about the application.
 #[derive(Clone, Default)]
 pub struct App<'a> {
-    parser: ArgParser<'a>,
+    arguments: Arguments<'a>,
     name: &'a str,
     version: &'a str,
     header: &'a str,
@@ -65,7 +65,7 @@ pub struct App<'a> {
 impl<'a> App<'a> {
     /// Add an argument with its associated `ArgInfo` in parser's Hash Map.
     pub fn arg(mut self, arg_info: ArgInfo<'a>) -> Self {
-        self.parser.insert_arg(arg_info);
+        self.arguments.insert_arg(arg_info);
         self
     }
 
@@ -92,9 +92,9 @@ impl<'a> App<'a> {
         self
     }
 
-    /// Return the map with the arguments and their associated `ArgInfo`s.
-    pub fn get_parser(self) -> ArgParser<'a> {
-        self.parser
+    /// Parse the command line arguments. Arguments are placed in `self.arguments`.
+    pub fn parse_cmdline_args(&mut self) -> Result<()> {
+        self.arguments.parse()
     }
 
     /// Concatenate the `help` information of every possible argument
@@ -107,11 +107,15 @@ impl<'a> App<'a> {
 
         help_builder.push(format!("{}\n\n", self.header));
 
-        for arg in self.parser.args.values() {
+        for arg in self.arguments.args.values() {
             help_builder.push(format!("{}\n", arg.format_help()));
         }
 
         help_builder.concat()
+    }
+
+    pub fn arguments(&self) -> &Arguments {
+        &self.arguments
     }
 }
 
@@ -122,7 +126,7 @@ pub struct ArgInfo<'a> {
     required: bool,
     requires: Option<&'a str>,
     takes_value: bool,
-    default_value: Option<&'a str>,
+    default_value: Option<Value>,
     help: Option<&'a str>,
     user_value: Option<Value>,
 }
@@ -163,7 +167,7 @@ impl<'a> ArgInfo<'a> {
     /// Keep a default value which will be used if the user didn't provide a value for
     /// the argument.
     pub fn default_value(mut self, default_value: &'a str) -> Self {
-        self.default_value = Some(default_value);
+        self.default_value = Some(Value::String(String::from(default_value)));
         self
     }
 
@@ -217,41 +221,53 @@ impl Value {
 /// * `args` - A Hash Map in which the key is an argument and the value is its associated `ArgInfo`.
 /// * `extra_args` - The arguments specified after `--` (i.e. end of command options).
 #[derive(Clone, Default)]
-pub struct ArgParser<'a> {
+pub struct Arguments<'a> {
     args: HashMap<&'a str, ArgInfo<'a>>,
     extra_args: Vec<String>,
 }
 
-impl<'a> ArgParser<'a> {
+impl<'a> Arguments<'a> {
     /// Add an argument with its associated `ArgInfo` in `args` map.
     fn insert_arg(&mut self, arg_info: ArgInfo<'a>) {
         self.args.insert(arg_info.name, arg_info);
     }
 
-    /// Used for getting the value for an optional argument (i.e. that is
-    /// neither required nor has a default value).
-    pub fn value(&self, arg_name: &'static str) -> Option<String> {
-        // Safe to unwrap because we are searching in the map only
-        // for valid args.
-        let arg_info = self.args.get(arg_name).unwrap();
-        if let Some(user_value) = &arg_info.user_value {
-            return user_value.clone().as_string();
-        } else if let Some(default_value) = arg_info.default_value {
-            return Some(default_value.to_string());
+    fn value_of(&self, arg_name: &'static str) -> Option<&Value> {
+        if let Some(arg_info) = self.args.get(arg_name) {
+            match &arg_info.user_value {
+                Some(val) => {
+                    return Some(val);
+                }
+                None => return arg_info.default_value.as_ref(),
+            }
         }
+
         None
     }
 
-    pub fn is_present(&self, arg_name: &'static str) -> bool {
-        if let Some(value) = self.args.get(arg_name).unwrap().user_value.clone() {
-            return value.as_bool().unwrap();
+    /// Returns the value of an argument if the argument exists and has the type
+    /// String. Otherwise returns None.
+    pub fn value_as_string(&self, arg_name: &'static str) -> Option<String> {
+        if let Some(arg_value) = self.value_of(arg_name) {
+            return arg_value.as_string();
         }
-        false
+
+        None
     }
 
-    /// Set the extra arguments for the argument parser.
-    pub fn extra_args(self) -> Vec<String> {
-        self.extra_args
+    /// Returns the value of an argument if the argument exists and has the type
+    /// bool. Otherwise returns None.
+    pub fn value_as_bool(&self, arg_name: &'static str) -> Option<bool> {
+        if let Some(arg_value) = self.value_of(arg_name) {
+            return arg_value.as_bool();
+        }
+
+        None
+    }
+
+    /// Get the extra arguments (all arguments after -- ).
+    pub fn extra_args(&self) -> Vec<String> {
+        self.extra_args.clone()
     }
 
     // Splits `args` in two slices: one with the actual arguments of the process and the other with
@@ -266,16 +282,21 @@ impl<'a> ArgParser<'a> {
 
     /// Collect the command line arguments and the values provided for them.
     pub fn parse(&mut self) -> Result<()> {
+
+        // TODO: we need to mock this somehow so we can test the `parse function`.
         let args: Vec<String> = env::args().collect();
 
-        // Skipping the first element of `args` as it is the name of the binary, not an actual argument.
-        let (args, extra_args) = ArgParser::split_args(&args[1..]);
+        // Skipping the first element of `args` as it is the name of the binary.
+        let (args, extra_args) = Arguments::split_args(&args[1..]);
         self.extra_args = extra_args.to_vec();
 
-        self.insert_arg(ArgInfo::new("help"));
+        // If `--help` is provided as a parameter, we artificially skip the parsing of other
+        // command line arguments by adding just the help argument to the parsed list and
+        // returning.
         if args.contains(&HELP_ARG.to_string()) {
-            let arg_info = self.args.get_mut("help").unwrap();
-            arg_info.user_value = Some(Value::Bool(true));
+            let mut help_arg = ArgInfo::new("help");
+            help_arg.user_value = Some(Value::Bool(true));
+            self.insert_arg(help_arg);
             return Ok(());
         }
 
@@ -322,7 +343,7 @@ impl<'a> ArgParser<'a> {
 
     /// Validate the arguments provided by user and their values. Insert those
     /// values in the `ArgInfo` instances of the corresponding arguments.
-    pub fn populate_args(&mut self, args: &[String]) -> Result<()> {
+    fn populate_args(&mut self, args: &[String]) -> Result<()> {
         let mut iter = args.iter();
         while let Some(arg) = iter.next() {
             self.validate_arg(arg)?;
@@ -356,7 +377,7 @@ impl<'a> ArgParser<'a> {
 mod tests {
     use super::*;
 
-    fn build_parser() -> ArgParser<'static> {
+    fn build_parser() -> Arguments<'static> {
         App::default()
             .arg(
                 ArgInfo::new("exec-file")
@@ -393,7 +414,7 @@ mod tests {
                     .takes_value(true)
                     .help("'config-file' info."),
             )
-            .get_parser()
+            .parse_cmdline_args()
     }
 
     #[test]
@@ -604,7 +625,7 @@ mod tests {
             .into_iter()
             .map(String::from)
             .collect::<Vec<String>>();
-        let (left, right) = ArgParser::split_args(&args);
+        let (left, right) = Arguments::split_args(&args);
         assert_eq!(left.to_vec(), vec!["--exec-file", "foo"]);
         assert_eq!(right.to_vec(), vec!["--extra-arg-1", "--extra-arg-2"]);
 
@@ -612,7 +633,7 @@ mod tests {
             .into_iter()
             .map(String::from)
             .collect::<Vec<String>>();
-        let (left, right) = ArgParser::split_args(&args);
+        let (left, right) = Arguments::split_args(&args);
         assert_eq!(left.to_vec(), vec!["--exec-file", "foo"]);
         assert!(right.is_empty());
 
@@ -620,7 +641,7 @@ mod tests {
             .into_iter()
             .map(String::from)
             .collect::<Vec<String>>();
-        let (left, right) = ArgParser::split_args(&args);
+        let (left, right) = Arguments::split_args(&args);
         assert_eq!(left.to_vec(), vec!["--exec-file", "foo"]);
         assert!(right.is_empty());
     }

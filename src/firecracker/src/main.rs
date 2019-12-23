@@ -76,7 +76,7 @@ fn main() {
         }
     }));
 
-    let app = App::new().name("Firecracker").version(FIRECRACKER_VERSION)
+    let mut app = App::new().name("Firecracker").version(FIRECRACKER_VERSION)
         .header("Launch a microVM.")
         .arg(
             ArgInfo::new("api-sock")
@@ -116,9 +116,8 @@ fn main() {
         .requires("config-file")
         .help("Optional parameter which allows starting and using a microVM without an active API socket.")
     );
-    let mut arg_parser = app.clone().get_parser();
 
-    match arg_parser.parse() {
+    match app.parse_cmdline_args() {
         Err(err) => {
             error!(
                 "Arguments parsing error: {} \n\n\
@@ -128,46 +127,53 @@ fn main() {
             process::exit(i32::from(vmm::FC_EXIT_CODE_ARG_PARSING));
         }
         _ => {
-            if arg_parser.is_present("help") {
-                println!("{}", app.format_help());
-                process::exit(i32::from(vmm::FC_EXIT_CODE_OK));
+            if let Some(help) = app.arguments().value_as_bool("help") {
+                if help {
+                    println!("{}", app.format_help());
+                    process::exit(i32::from(vmm::FC_EXIT_CODE_OK));
+                }
             }
         }
     }
 
-    let bind_path = arg_parser
-        .value("api-sock")
+    let bind_path = app
+        .arguments()
+        .value_as_string("api-sock")
         .map(PathBuf::from)
         .expect("Missing argument: api_sock");
 
     // It's safe to unwrap here because the field's been provided with a default value.
-    let instance_id = arg_parser.value("id").unwrap();
+    let instance_id = app.arguments().value_as_string("id").unwrap();
     validate_instance_id(instance_id.as_str()).expect("Invalid instance ID");
 
     // It's safe to unwrap here because the field's been provided with a default value.
-    let seccomp_level_str = arg_parser.value("seccomp-level").unwrap();
+    let seccomp_level_str = app.arguments().value_as_string("seccomp-level").unwrap();
     if let Err(err) = validate_seccomp_level(seccomp_level_str.as_str()) {
         panic!("Invalid seccomp-level: {}", err);
     };
     // Also safe to unwrap because allowed values are guaranteed to parse to u32.
     let seccomp_level = seccomp_level_str.parse::<u32>().unwrap();
 
-    let start_time_us = arg_parser.value("start-time-us").map(|s| {
+    let start_time_us = app.arguments().value_as_string("start-time-us").map(|s| {
         s.parse::<u64>()
             .expect("'start-time-us' parameter expected to be of 'u64' type.")
     });
 
-    let start_time_cpu_us = arg_parser.value("start-time-cpu-us").map(|s| {
-        s.parse::<u64>()
-            .expect("'start-time-cpu_us' parameter expected to be of 'u64' type.")
-    });
+    let start_time_cpu_us = app
+        .arguments()
+        .value_as_string("start-time-cpu-us")
+        .map(|s| {
+            s.parse::<u64>()
+                .expect("'start-time-cpu_us' parameter expected to be of 'u64' type.")
+        });
 
-    let vmm_config_json = arg_parser
-        .value("config-file")
+    let vmm_config_json = app
+        .arguments()
+        .value_as_string("config-file")
         .map(fs::read_to_string)
         .map(|x| x.expect("Unable to open or read from the configuration file"));
 
-    let no_api = arg_parser.is_present("no-api");
+    let no_api = app.arguments().value_as_bool("no-api").unwrap_or(false);
 
     let api_shared_info = Arc::new(RwLock::new(InstanceInfo {
         state: InstanceState::Uninitialized,

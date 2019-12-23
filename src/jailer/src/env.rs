@@ -51,27 +51,27 @@ pub struct Env {
 
 impl Env {
     pub fn new(
-        arg_parser: arg_parser::ArgParser,
+        arg_parser: &arg_parser::Arguments,
         start_time_us: u64,
         start_time_cpu_us: u64,
     ) -> Result<Self> {
         // All arguments are either mandatory, or have default values, so the unwraps
         // should not fail.
         let id = arg_parser
-            .value("id")
+            .value_as_string("id")
             .ok_or_else(|| Error::ArgumentParsing(MissingValue("id".to_string())))?;
 
         validators::validate_instance_id(&id.as_str()).map_err(Error::InvalidInstanceId)?;
 
         let numa_node_str = arg_parser
-            .value("node")
+            .value_as_string("node")
             .ok_or_else(|| Error::ArgumentParsing(MissingValue("node".to_string())))?;
         let numa_node = numa_node_str
             .parse::<u32>()
             .map_err(|_| Error::NumaNode(numa_node_str))?;
 
         let exec_file = arg_parser
-            .value("exec-file")
+            .value_as_string("exec-file")
             .ok_or_else(|| Error::ArgumentParsing(MissingValue("exec-file".to_string())))?;
         let exec_file_path = canonicalize(&exec_file)
             .map_err(|e| Error::Canonicalize(PathBuf::from(&exec_file), e))?;
@@ -81,7 +81,7 @@ impl Env {
         }
 
         let chroot_base = arg_parser
-            .value("chroot-base-dir")
+            .value_as_string("chroot-base-dir")
             .ok_or_else(|| Error::ArgumentParsing(MissingValue("chroot-base-dir".to_string())))?;
         let mut chroot_dir = canonicalize(&chroot_base)
             .map_err(|e| Error::Canonicalize(PathBuf::from(&chroot_base), e))?;
@@ -95,24 +95,24 @@ impl Env {
         chroot_dir.push("root");
 
         let uid_str = arg_parser
-            .value("uid")
+            .value_as_string("uid")
             .ok_or_else(|| Error::ArgumentParsing(MissingValue("uid".to_string())))?;
         let uid = uid_str.parse::<u32>().map_err(|_| Error::Uid(uid_str))?;
 
         let gid_str = arg_parser
-            .value("gid")
+            .value_as_string("gid")
             .ok_or_else(|| Error::ArgumentParsing(MissingValue("gid".to_string())))?;
         let gid = gid_str.parse::<u32>().map_err(|_| Error::Gid(gid_str))?;
 
-        let netns = arg_parser.value("netns");
+        let netns = arg_parser.value_as_string("netns");
 
-        let daemonize = arg_parser.is_present("daemonize");
+        let daemonize = arg_parser.value_as_bool("daemonize").unwrap_or(false);
 
         // The value of the argument can be safely unwrapped, because a default value was specified.
         // It can be parsed into an unsigned integer since its possible values were specified and
         // they are all unsigned integers.
         let seccomp_level_str = arg_parser
-            .value("seccomp-level")
+            .value_as_string("seccomp-level")
             .ok_or_else(|| Error::ArgumentParsing(MissingValue("seccomp-level".to_string())))?;
         validators::validate_seccomp_level(seccomp_level_str.as_str())
             .map_err(Error::InvalidSeccompLevel)?;
@@ -394,7 +394,7 @@ mod tests {
             seccomp_level: None,
         };
 
-        let mut arg_parser = build_app().get_parser();
+        let mut arg_parser = build_app().parse_cmdline_args();
         arg_parser
             .populate_args(&make_args(&good_arg_vals))
             .unwrap();
@@ -420,7 +420,7 @@ mod tests {
             ..good_arg_vals
         };
 
-        arg_parser = build_app().get_parser();
+        arg_parser = build_app().parse_cmdline_args();
         arg_parser
             .populate_args(&make_args(&another_good_arg_vals))
             .unwrap();
@@ -437,7 +437,7 @@ mod tests {
             node: "zzz",
             ..base_invalid_arg_vals.clone()
         };
-        arg_parser = build_app().get_parser();
+        arg_parser = build_app().parse_cmdline_args();
         arg_parser
             .populate_args(&make_args(&invalid_node_arg_vals))
             .unwrap();
@@ -447,7 +447,7 @@ mod tests {
             id: "/ad./sa12",
             ..base_invalid_arg_vals.clone()
         };
-        arg_parser = build_app().get_parser();
+        arg_parser = build_app().parse_cmdline_args();
         arg_parser
             .populate_args(&make_args(&invalid_id_arg_vals))
             .unwrap();
@@ -457,7 +457,7 @@ mod tests {
             exec_file: "/this!/file!/should!/not!/exist!/",
             ..base_invalid_arg_vals.clone()
         };
-        arg_parser = build_app().get_parser();
+        arg_parser = build_app().parse_cmdline_args();
         arg_parser
             .populate_args(&make_args(&inexistent_exec_file_arg_vals))
             .unwrap();
@@ -467,7 +467,7 @@ mod tests {
             uid: "zzz",
             ..base_invalid_arg_vals.clone()
         };
-        arg_parser = build_app().get_parser();
+        arg_parser = build_app().parse_cmdline_args();
         arg_parser
             .populate_args(&make_args(&invalid_uid_arg_vals))
             .unwrap();
@@ -477,7 +477,7 @@ mod tests {
             gid: "zzz",
             ..base_invalid_arg_vals.clone()
         };
-        arg_parser = build_app().get_parser();
+        arg_parser = build_app().parse_cmdline_args();
         arg_parser
             .populate_args(&make_args(&invalid_gid_arg_vals))
             .unwrap();
@@ -487,7 +487,7 @@ mod tests {
             seccomp_level: Some("3"),
             ..base_invalid_arg_vals.clone()
         };
-        arg_parser = build_app().get_parser();
+        arg_parser = build_app().parse_cmdline_args();
         arg_parser
             .populate_args(&make_args(&invalid_seccomp_arg_vals))
             .unwrap();
