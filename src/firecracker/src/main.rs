@@ -26,7 +26,7 @@ use std::thread;
 use api_server::{ApiServer, Error, VmmRequest, VmmResponse};
 use logger::{Metric, LOGGER, METRICS};
 use mmds::MMDS;
-use utils::arg_parser::{ArgInfo, ArgParser, Help};
+use utils::arg_parser::{App, ArgInfo};
 use utils::eventfd::EventFd;
 use utils::terminal::Terminal;
 use utils::validators::{validate_instance_id, validate_seccomp_level};
@@ -76,15 +76,14 @@ fn main() {
         }
     }));
 
-    let mut arg_parser = ArgParser::default().header(
-        format!("Firecracker v{}. \n\
-                 Launch a microVM.", FIRECRACKER_VERSION))
+    let app = App::new().name("Firecracker").version(FIRECRACKER_VERSION)
+        .header("Launch a microVM.")
         .arg(
-        ArgInfo::new("api-sock")
-            .takes_value(true)
-            .default_value(DEFAULT_API_SOCK_PATH)
-            .help("Path to unix domain socket used by the API"),
-    ).arg(
+            ArgInfo::new("api-sock")
+                .takes_value(true)
+                .default_value(DEFAULT_API_SOCK_PATH)
+                .help("Path to unix domain socket used by the API"),
+        ).arg(
         ArgInfo::new("id")
             .takes_value(true)
             .default_value(DEFAULT_INSTANCE_ID)
@@ -117,6 +116,7 @@ fn main() {
         .requires("config-file")
         .help("Optional parameter which allows starting and using a microVM without an active API socket.")
     );
+    let mut arg_parser = app.clone().get_parser();
 
     match arg_parser.parse() {
         Err(err) => {
@@ -127,24 +127,25 @@ fn main() {
             );
             process::exit(i32::from(vmm::FC_EXIT_CODE_ARG_PARSING));
         }
-        Ok(Help::Provided) => {
-            println!("{}", arg_parser.format_help());
-            process::exit(i32::from(vmm::FC_EXIT_CODE_OK));
+        _ => {
+            if arg_parser.is_present("help") {
+                println!("{}", app.format_help());
+                process::exit(i32::from(vmm::FC_EXIT_CODE_OK));
+            }
         }
-        _ => {}
     }
 
     let bind_path = arg_parser
-        .arg_value("api-sock")
+        .value("api-sock")
         .map(PathBuf::from)
         .expect("Missing argument: api_sock");
 
     // It's safe to unwrap here because the field's been provided with a default value.
-    let instance_id = arg_parser.arg_value("id").unwrap();
+    let instance_id = arg_parser.value("id").unwrap();
     validate_instance_id(instance_id.as_str()).expect("Invalid instance ID");
 
     // It's safe to unwrap here because the field's been provided with a default value.
-    let seccomp_level_str = arg_parser.arg_value("seccomp-level").unwrap();
+    let seccomp_level_str = arg_parser.value("seccomp-level").unwrap();
     if let Err(err) = validate_seccomp_level(seccomp_level_str.as_str()) {
         panic!("Invalid seccomp-level: {}", err);
     };
@@ -166,7 +167,7 @@ fn main() {
         .map(fs::read_to_string)
         .map(|x| x.expect("Unable to open or read from the configuration file"));
 
-    let no_api = arg_parser.value("no-api").is_some();
+    let no_api = arg_parser.is_present("no-api");
 
     let api_shared_info = Arc::new(RwLock::new(InstanceInfo {
         state: InstanceState::Uninitialized,

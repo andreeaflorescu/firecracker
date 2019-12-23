@@ -10,7 +10,6 @@ pub type Result<T> = result::Result<T, Error>;
 
 const ARG_PREFIX: &str = "--";
 const ARG_SEPARATOR: &str = "--";
-const FLAG_PROVIDED: &str = "true";
 const HELP_ARG: &str = "--help";
 
 /// Errors associated with parsing and validating arguments.
@@ -49,6 +48,73 @@ impl fmt::Display for Error {
     }
 }
 
+/// Keep information about the application.
+///
+/// * `parser` - Responsible for the command line argument parsing logic.
+/// * `name` - The name of the application.
+/// * `version` - The version of the application.
+/// * `header` - This is used for storing general information about the application.
+#[derive(Clone, Default)]
+pub struct App<'a> {
+    parser: ArgParser<'a>,
+    name: &'a str,
+    version: &'a str,
+    header: &'a str,
+}
+
+impl<'a> App<'a> {
+    /// Add an argument with its associated `ArgInfo` in parser's Hash Map.
+    pub fn arg(mut self, arg_info: ArgInfo<'a>) -> Self {
+        self.parser.insert_arg(arg_info);
+        self
+    }
+
+    /// Create a default App instance.
+    pub fn new() -> Self {
+        App::default()
+    }
+
+    /// Set the name of the running application.
+    pub fn name(mut self, name: &'a str) -> Self {
+        self.name = name;
+        self
+    }
+
+    /// Set the version of the running application.
+    pub fn version(mut self, version: &'a str) -> Self {
+        self.version = version;
+        self
+    }
+
+    /// Set general information about the running application.
+    pub fn header(mut self, header: &'a str) -> Self {
+        self.header = header;
+        self
+    }
+
+    /// Return the map with the arguments and their associated `ArgInfo`s.
+    pub fn get_parser(self) -> ArgParser<'a> {
+        self.parser
+    }
+
+    /// Concatenate the `help` information of every possible argument
+    /// in a message that represents the correct command line usage
+    /// for the application.
+    pub fn format_help(&self) -> String {
+        let mut help_builder = vec![];
+
+        help_builder.push(format!("{} v{}.\n", self.name, self.version));
+
+        help_builder.push(format!("{}\n\n", self.header));
+
+        for arg in self.parser.args.values() {
+            help_builder.push(format!("{}\n", arg.format_help()));
+        }
+
+        help_builder.concat()
+    }
+}
+
 /// Used for setting the characteristics of the `name` command line argument.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ArgInfo<'a> {
@@ -58,7 +124,7 @@ pub struct ArgInfo<'a> {
     takes_value: bool,
     default_value: Option<&'a str>,
     help: Option<&'a str>,
-    user_value: Option<String>,
+    user_value: Option<Value>,
 }
 
 impl<'a> ArgInfo<'a> {
@@ -101,17 +167,6 @@ impl<'a> ArgInfo<'a> {
         self
     }
 
-    /// Return the value of the argument, which will be the user's one if it was provided,
-    /// the default value if not or `None` if there isn't a value for that argument at all.
-    pub fn get_value(&self) -> Option<String> {
-        if let Some(user_value) = &self.user_value {
-            return Some(user_value.clone());
-        } else if let Some(default_value) = self.default_value {
-            return Some(default_value.to_string());
-        }
-        None
-    }
-
     /// Set the information that will be displayed for the argument when user passes
     /// `--help` flag.
     pub fn help(mut self, help: &'a str) -> Self {
@@ -135,50 +190,42 @@ impl<'a> ArgInfo<'a> {
     }
 }
 
-/// Used for setting that `--help` flag was provided by user.
-pub enum Help {
-    Provided,
-    NotProvided,
+#[derive(Clone, Debug, PartialEq)]
+pub enum Value {
+    Bool(bool),
+    String(String),
+}
+
+impl Value {
+    fn as_string(&self) -> Option<String> {
+        match self {
+            Value::String(s) => Some(s.to_string()),
+            _ => None,
+        }
+    }
+
+    fn as_bool(&self) -> Option<bool> {
+        match self {
+            Value::Bool(b) => Some(*b),
+            _ => None,
+        }
+    }
 }
 
 /// Keep information about the command line argument parser.
 ///
 /// * `args` - A Hash Map in which the key is an argument and the value is its associated `ArgInfo`.
 /// * `extra_args` - The arguments specified after `--` (i.e. end of command options).
-/// * `header` - This is used for storing general information about the process.
-#[derive(Debug, Default, PartialEq)]
+#[derive(Clone, Default)]
 pub struct ArgParser<'a> {
     args: HashMap<&'a str, ArgInfo<'a>>,
     extra_args: Vec<String>,
-    header: String,
 }
 
 impl<'a> ArgParser<'a> {
     /// Add an argument with its associated `ArgInfo` in `args` map.
-    pub fn arg(mut self, arg_info: ArgInfo<'a>) -> Self {
+    fn insert_arg(&mut self, arg_info: ArgInfo<'a>) {
         self.args.insert(arg_info.name, arg_info);
-        self
-    }
-
-    /// Set general information about the running application.
-    pub fn header(mut self, header: String) -> Self {
-        self.header = header;
-        self
-    }
-
-    /// Concatenate the `help` information of every possible argument
-    /// in a message that represents the correct command line usage
-    /// for the application.
-    pub fn format_help(&self) -> String {
-        let mut help_builder = vec![];
-
-        help_builder.push(format!("{}\n", self.header));
-
-        for arg in self.args.values() {
-            help_builder.push(format!("{}\n", arg.format_help()));
-        }
-
-        help_builder.concat()
     }
 
     /// Used for getting the value for an optional argument (i.e. that is
@@ -186,7 +233,20 @@ impl<'a> ArgParser<'a> {
     pub fn value(&self, arg_name: &'static str) -> Option<String> {
         // Safe to unwrap because we are searching in the map only
         // for valid args.
-        self.args.get(arg_name).unwrap().user_value.clone()
+        let arg_info = self.args.get(arg_name).unwrap();
+        if let Some(user_value) = &arg_info.user_value {
+            return user_value.clone().as_string();
+        } else if let Some(default_value) = arg_info.default_value {
+            return Some(default_value.to_string());
+        }
+        None
+    }
+
+    pub fn is_present(&self, arg_name: &'static str) -> bool {
+        if let Some(value) = self.args.get(arg_name).unwrap().user_value.clone() {
+            return value.as_bool().unwrap();
+        }
+        false
     }
 
     /// Set the extra arguments for the argument parser.
@@ -205,20 +265,21 @@ impl<'a> ArgParser<'a> {
     }
 
     /// Collect the command line arguments and the values provided for them.
-    pub fn parse(&mut self) -> Result<Help> {
+    pub fn parse(&mut self) -> Result<()> {
         let args: Vec<String> = env::args().collect();
 
         // Skipping the first element of `args` as it is the name of the binary, not an actual argument.
         let (args, extra_args) = ArgParser::split_args(&args[1..]);
         self.extra_args = extra_args.to_vec();
 
+        self.insert_arg(ArgInfo::new("help"));
         if args.contains(&HELP_ARG.to_string()) {
-            return Ok(Help::Provided);
+            let arg_info = self.args.get_mut("help").unwrap();
+            arg_info.user_value = Some(Value::Bool(true));
+            return Ok(());
         }
 
-        self.populate_args(args);
-
-        Ok(Help::NotProvided)
+        self.populate_args(args)
     }
 
     // Check if `required` and `requires` field rules are indeed followed by every argument.
@@ -271,29 +332,23 @@ impl<'a> ArgParser<'a> {
                 .get_mut(&arg[ARG_PREFIX.len()..])
                 .ok_or_else(|| Error::UnexpectedArgument(arg[ARG_PREFIX.len()..].to_string()))?;
 
-            let val = if arg_info.takes_value {
-                iter.next()
+            let arg_val = if arg_info.takes_value {
+                let val = iter
+                    .next()
                     .filter(|v| !v.starts_with(ARG_PREFIX))
                     .ok_or_else(|| Error::MissingValue(arg_info.name.to_string()))?
+                    .clone();
+                Value::String(val)
             } else {
-                FLAG_PROVIDED
+                Value::Bool(true)
             };
 
-            arg_info.user_value = Some(val.to_string());
+            arg_info.user_value = Some(arg_val);
         }
 
         self.validate_requirements(&args)?;
 
         Ok(())
-    }
-
-    /// Extracts an argument's value or returns a specific error if the argument is missing.
-    pub fn arg_value(&self, arg_name: &'static str) -> Result<String> {
-        self.args
-            .get(arg_name)
-            .ok_or_else(|| Error::UnexpectedArgument(arg_name.to_string()))?
-            .get_value()
-            .ok_or_else(|| Error::MissingValue(arg_name.to_string()))
     }
 }
 
@@ -302,8 +357,7 @@ mod tests {
     use super::*;
 
     fn build_parser() -> ArgParser<'static> {
-        ArgParser::default()
-            .header("App info".to_string())
+        App::default()
             .arg(
                 ArgInfo::new("exec-file")
                     .required(true)
@@ -339,6 +393,7 @@ mod tests {
                     .takes_value(true)
                     .help("'config-file' info."),
             )
+            .get_parser()
     }
 
     #[test]
@@ -375,15 +430,19 @@ mod tests {
     #[test]
     fn test_parser_help() {
         // Checks help information when user passes `--help` flag.
-        let arg_parser = ArgParser::default().header("App info".to_string()).arg(
-            ArgInfo::new("exec-file")
-                .required(true)
-                .takes_value(true)
-                .help("'exec-file' info."),
-        );
+        let arg_parser = App::default()
+            .name("name")
+            .version("0.x.0")
+            .header("App info")
+            .arg(
+                ArgInfo::new("exec-file")
+                    .required(true)
+                    .takes_value(true)
+                    .help("'exec-file' info."),
+            );
         assert_eq!(
             arg_parser.format_help(),
-            "App info\n--exec-file <exec-file>: \'exec-file\' info.\n"
+            "name v0.x.0.\nApp info\n\n--exec-file <exec-file>: \'exec-file\' info.\n"
         );
     }
 

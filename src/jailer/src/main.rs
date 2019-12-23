@@ -19,7 +19,7 @@ use std::process;
 use std::result;
 
 use env::Env;
-use utils::arg_parser::{ArgInfo, ArgParser, Error as ParsingError, Help};
+use utils::arg_parser::{App, ArgInfo, Error as ParsingError};
 use utils::validators;
 
 const SOCKET_FILE_NAME: &str = "api.socket";
@@ -216,13 +216,11 @@ pub type Result<T> = result::Result<T, Error>;
 
 /// Create a command line argument parser and populate it with the expected
 /// arguments and their characteristics.
-pub fn build_arg_parser() -> ArgParser<'static> {
-    ArgParser::default()
-        .header(format!(
-            "Jailer v{}. \n\
-             Jail a microVM.",
-            JAILER_VERSION
-        ))
+pub fn build_app() -> App<'static> {
+    App::new()
+        .name("Jailer")
+        .version(JAILER_VERSION)
+        .header("Jail a microVM.")
         .arg(
             ArgInfo::new("id")
                 .required(true)
@@ -325,7 +323,8 @@ fn to_cstring<T: AsRef<Path>>(path: T) -> Result<CString> {
 fn main() {
     sanitize_process();
 
-    let mut arg_parser = build_arg_parser();
+    let app = build_app();
+    let mut arg_parser = app.clone().get_parser();
 
     match arg_parser.parse() {
         Err(err) => {
@@ -336,11 +335,12 @@ fn main() {
             );
             process::exit(1);
         }
-        Ok(Help::Provided) => {
-            println!("{}", arg_parser.format_help());
-            process::exit(0);
+        _ => {
+            if arg_parser.is_present("help") {
+                println!("{}", app.format_help());
+                process::exit(0);
+            }
         }
-        _ => {}
     }
 
     Env::new(
