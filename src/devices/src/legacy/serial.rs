@@ -10,8 +10,8 @@ use std::io;
 use std::os::unix::io::AsRawFd;
 
 use logger::{Metric, METRICS};
-use polly::event_manager::EventHandler;
-use polly::pollable::{Pollable, PollableOp, PollableOpBuilder};
+use polly::epoll::{EpollEvent, EventSet};
+use polly::event_manager::Subscriber;
 use utils::eventfd::EventFd;
 
 use crate::bus::BusDevice;
@@ -271,9 +271,23 @@ impl BusDevice for Serial {
     }
 }
 
-impl EventHandler for Serial {
+impl Subscriber for Serial {
     /// Handle a read event (EPOLLIN) on the serial input fd.
-    fn handle_read(&mut self, source: Pollable) -> Vec<PollableOp> {
+    fn process(&mut self, event: EpollEvent) {
+        let source = event.fd();
+        let event_set = event.event_set();
+
+        // TODO: also check for errors. Pending high level discussions on how we want
+        // to handle errors in devices.
+        let supported_events = EventSet::IN;
+        if !supported_events.contains(event_set) {
+            warn!(
+                "Received unknown event: {:?} from source: {:?}",
+                event_set, source
+            );
+            return;
+        }
+
         if let Some(input) = self.input.as_mut() {
             if input.as_raw_fd() == source {
                 let mut out = [0u8; 32];
@@ -286,21 +300,18 @@ impl EventHandler for Serial {
                         warn!("error while reading stdin: {:?}", e);
                     }
                 }
-                return vec![];
             }
         }
         error!("Spurious Serial input event!");
-        vec![]
     }
 
     /// Initial registration of pollable objects.
     /// If serial input is present, register the serial input FD as readable.
-    fn init(&self) -> Vec<PollableOp> {
-        self.input.as_ref().map_or(vec![], |input| {
-            vec![PollableOpBuilder::new(input.as_raw_fd())
-                .readable()
-                .register()]
-        })
+    fn interest_list(&self) -> Vec<EpollEvent> {
+        match &self.input {
+            Some(input) => vec![EpollEvent::new(EventSet::IN, input.as_raw_fd() as u64)],
+            None => vec![],
+        }
     }
 }
 
@@ -438,11 +449,11 @@ mod tests {
 
         let mut evmgr = EventManager::new().unwrap();
         let serial_wrap = Arc::new(Mutex::new(serial));
-        evmgr.register(serial_wrap.clone()).unwrap();
+        evmgr.add_subscriber(serial_wrap.clone()).unwrap();
 
         // Run the event handler which should drive serial input.
         // There should be one event reported (which should have also handled serial input).
-        assert_eq!(evmgr.run_timeout(50).unwrap(), 1);
+        assert_eq!(evmgr.run_with_timeout(50).unwrap(), 1);
 
         // Verify the serial raised an interrupt.
         assert_eq!(intr_evt.read().unwrap(), 2);

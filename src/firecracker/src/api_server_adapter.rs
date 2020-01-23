@@ -205,7 +205,7 @@ pub fn run_with_api(
     // Create the firecracker metrics object responsible for periodically printing metrics.
     let firecracker_metrics = Arc::new(Mutex::new(super::metrics::PeriodicMetrics::new()));
     event_manager
-        .register(firecracker_metrics.clone())
+        .add_subscriber(firecracker_metrics.clone())
         .expect("Cannot register the metrics event to the event manager.");
 
     epoll_context

@@ -236,7 +236,7 @@ fn run_without_api(seccomp_level: u32, config_json: Option<String>) {
     // Create the firecracker metrics object responsible for periodically printing metrics.
     let firecracker_metrics = Arc::new(Mutex::new(metrics::PeriodicMetrics::new()));
     event_manager
-        .register(firecracker_metrics.clone())
+        .add_subscriber(firecracker_metrics.clone())
         .expect("Cannot register the metrics event to the event manager.");
 
     let (vm_resources, vmm) = build_microvm_from_json(
