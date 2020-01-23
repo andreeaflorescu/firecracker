@@ -11,7 +11,7 @@ use std::os::unix::io::AsRawFd;
 
 use logger::{Metric, METRICS};
 use polly::epoll::{EpollEvent, EventSet};
-use polly::event_manager::Subscriber;
+use polly::event_manager::{EventManager, Subscriber};
 use utils::eventfd::EventFd;
 
 use crate::bus::BusDevice;
@@ -273,7 +273,7 @@ impl BusDevice for Serial {
 
 impl Subscriber for Serial {
     /// Handle a read event (EPOLLIN) on the serial input fd.
-    fn process(&mut self, event: EpollEvent) {
+    fn process(&mut self, event: EpollEvent, _: &mut EventManager) {
         let source = event.fd();
         let event_set = event.event_set();
 

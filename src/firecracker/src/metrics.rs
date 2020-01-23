@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use logger::{Metric, LOGGER, METRICS};
 use polly::epoll::{EpollEvent, EventSet};
-use polly::event_manager::Subscriber;
+use polly::event_manager::{EventManager, Subscriber};
 use timerfd::{ClockId, SetTimeFlags, TimerFd, TimerState};
 
 /// Metrics reporting period.
@@ -62,7 +62,7 @@ impl PeriodicMetrics {
 
 impl Subscriber for PeriodicMetrics {
     /// Handle a read event (EPOLLIN).
-    fn process(&mut self, event: EpollEvent) {
+    fn process(&mut self, event: EpollEvent, _: &mut EventManager) {
         let source = event.fd();
         let event_set = event.event_set();
 
@@ -125,7 +125,7 @@ pub mod tests {
         // Test invalid read event.
         let unrelated_object = EventFd::new(libc::EFD_NONBLOCK).unwrap();
         let unrelated_event = EpollEvent::new(EventSet::IN, unrelated_object.as_raw_fd() as u64);
-        metrics.process(unrelated_event);
+        metrics.process(unrelated_event, &mut event_manager);
         // No flush happened.
         assert_eq!(metrics.flush_counter, 0);
 
