@@ -8,7 +8,7 @@ use polly::event_manager::{EventManager, Subscriber};
 
 impl Subscriber for Block {
     // Handle an event for queue or rate limiter.
-    fn process(&mut self, event: EpollEvent, _: &mut EventManager) {
+    fn process(&mut self, event: EpollEvent, _: &mut dyn EventManager) {
         let queue_evt = self.queue_evt.as_raw_fd();
         let rate_limiter_evt = self.rate_limiter.as_raw_fd();
 

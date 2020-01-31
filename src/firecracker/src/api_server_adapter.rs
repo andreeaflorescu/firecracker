@@ -8,7 +8,7 @@ use std::thread;
 
 use api_server::{ApiRequest, ApiResponse, ApiServer};
 use mmds::MMDS;
-use polly::event_manager::EventManager;
+use polly::event_manager::EpollManager;
 use utils::eventfd::EventFd;
 use vmm::controller::VmmController;
 use vmm::resources::VmResources;
@@ -42,7 +42,7 @@ impl ApiServerAdapter {
         &self,
         seccomp_level: u32,
         epoll_context: &mut vmm::EpollContext,
-        event_manager: &mut EventManager,
+        event_manager: &mut EpollManager,
         firecracker_version: String,
     ) -> (VmResources, vmm::Vmm) {
         let mut vm_resources = VmResources::default();
@@ -196,7 +196,7 @@ pub fn run_with_api(
     // The driving epoll engine.
     let mut epoll_context = vmm::EpollContext::new().expect("Cannot create the epoll context.");
     // The event manager to replace EpollContext.
-    let mut event_manager = EventManager::new().expect("Unable to create EventManager");
+    let mut event_manager = EpollManager::new().expect("Unable to create EventManager");
     // Cascade EventManager in EpollContext.
     epoll_context
         .add_epollin_event(&event_manager, EpollDispatch::PollyEvent)

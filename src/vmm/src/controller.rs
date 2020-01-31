@@ -13,7 +13,7 @@ use arch::DeviceType;
 use device_manager::mmio::MMIO_CFG_SPACE_OFF;
 use devices::virtio::{self, TYPE_BLOCK, TYPE_NET};
 use logger::LOGGER;
-use polly::event_manager::EventManager;
+use polly::event_manager::EpollManager;
 use resources::VmResources;
 use rpc_interface::VmmActionError;
 use vmm_config;
@@ -27,7 +27,7 @@ pub type ActionResult = std::result::Result<(), VmmActionError>;
 /// Enables runtime configuration of a Firecracker VMM.
 pub struct VmmController {
     epoll_context: EpollContext,
-    event_manager: EventManager,
+    event_manager: EpollManager,
     vm_resources: VmResources,
     vmm: Vmm,
 }
@@ -69,7 +69,7 @@ impl VmmController {
     /// Creates a new `VmmController`.
     pub fn new(
         epoll_context: EpollContext,
-        event_manager: EventManager,
+        event_manager: EpollManager,
         vm_resources: VmResources,
         vmm: Vmm,
     ) -> Self {

@@ -71,7 +71,7 @@ use logger::error::LoggerError;
 use logger::LogOption;
 use logger::{Metric, LOGGER, METRICS};
 use memory_model::{GuestAddress, GuestMemory};
-use polly::event_manager::{self, EventManager};
+use polly::event_manager::{self, EpollManager};
 use utils::eventfd::EventFd;
 use utils::terminal::Terminal;
 use utils::time::TimestampUs;
@@ -611,7 +611,7 @@ impl Vmm {
     pub fn run_event_loop(
         &mut self,
         epoll_context: &mut EpollContext,
-        event_manager: &mut EventManager,
+        event_manager: &mut EpollManager,
     ) -> Result<EventLoopExitReason> {
         loop {
             let event = epoll_context.get_event()?;
