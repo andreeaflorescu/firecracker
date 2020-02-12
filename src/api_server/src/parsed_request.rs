@@ -8,7 +8,7 @@ use request::actions::parse_put_actions;
 use request::boot_source::parse_put_boot_source;
 use request::drive::{parse_patch_drive, parse_put_drive};
 use request::instance_info::parse_get_instance_info;
-use request::logger::parse_put_logger;
+use request::logger::{parse_put_logger, parse_put_metrics};
 use request::machine_configuration::{
     parse_get_machine_config, parse_patch_machine_config, parse_put_machine_config,
 };
@@ -50,6 +50,7 @@ impl ParsedRequest {
             (Method::Put, "boot-source", Some(body)) => parse_put_boot_source(body),
             (Method::Put, "drives", Some(body)) => parse_put_drive(body, path_tokens.get(1)),
             (Method::Put, "logger", Some(body)) => parse_put_logger(body),
+            (Method::Put, "metrics", Some(body)) => parse_put_metrics(body),
             (Method::Put, "machine-config", Some(body)) => parse_put_machine_config(body),
             (Method::Put, "mmds", Some(body)) => parse_put_mmds(body),
             (Method::Put, "network-interfaces", Some(body)) => {

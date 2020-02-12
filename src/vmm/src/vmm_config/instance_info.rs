@@ -23,4 +23,6 @@ pub struct InstanceInfo {
     pub state: InstanceState,
     /// The version of the VMM that runs the microVM.
     pub vmm_version: String,
+    ///
+    pub name: String,
 }

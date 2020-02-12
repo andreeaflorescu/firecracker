@@ -34,7 +34,7 @@ use utils::eventfd::EventFd;
 use vmm::vmm_config::boot_source::BootSourceConfig;
 use vmm::vmm_config::drive::BlockDeviceConfig;
 use vmm::vmm_config::instance_info::InstanceInfo;
-use vmm::vmm_config::logger::LoggerConfig;
+use vmm::vmm_config::logger::{LoggerConfig, MetricsConfig};
 use vmm::vmm_config::machine_config::VmConfig;
 use vmm::vmm_config::net::{NetworkInterfaceConfig, NetworkInterfaceUpdateConfig};
 use vmm::vmm_config::vsock::VsockDeviceConfig;
@@ -50,6 +50,9 @@ pub enum VmmAction {
     /// Configure the logger using as input the `LoggerConfig`. This action can only be called
     /// before the microVM has booted.
     ConfigureLogger(LoggerConfig),
+    /// Configure the metrics using as input the `MetricsConfig`. This action can only be called
+    /// before the microVM has booted.
+    ConfigureMetrics(MetricsConfig),
     /// Get the configuration of the microVM.
     GetVmConfiguration,
     /// Flush the metrics. This action can only be called after the logger has been configured.

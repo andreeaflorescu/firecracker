@@ -11,16 +11,23 @@ use std::fmt;
 pub enum LoggerError {
     /// First attempt at initialization failed.
     NeverInitialized(String),
-    /// The logger is locked while preinitializing.
-    IsPreinitializing,
     /// The logger is locked while initializing.
     IsInitializing,
     /// The logger does not allow reinitialization.
     AlreadyInitialized,
-    /// Writing to specified buffer failed.
-    LogWrite(std::io::Error),
-    /// Flushing messages stored in buffer to disk failed.
-    LogFlush(std::io::Error),
+    /// Writing or flushing the specified buffer failed.
+    Flush(std::io::Error),
+}
+
+/// Describes the errors which may occur while handling metrics scenarios.
+#[derive(Debug)]
+pub enum MetricsError {
+    /// First attempt at initialization failed.
+    NeverInitialized(String),
+    /// The logger does not allow reinitialization.
+    AlreadyInitialized,
+    /// Writing or flushing the specified buffer failed.
+    Flush(std::io::Error),
     /// Error in the logging of the metrics.
     LogMetricFailure(String),
 }
@@ -29,10 +36,6 @@ impl fmt::Display for LoggerError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let printable = match *self {
             LoggerError::NeverInitialized(ref e) => e.to_string(),
-            LoggerError::IsPreinitializing => {
-                "The logger is preinitializing. Can't perform the requested action right now."
-                    .to_string()
-            }
             LoggerError::IsInitializing => {
                 "The logger is initializing. Can't perform the requested action right now."
                     .to_string()
@@ -40,9 +43,21 @@ impl fmt::Display for LoggerError {
             LoggerError::AlreadyInitialized => {
                 "Reinitialization of logger not allowed.".to_string()
             }
-            LoggerError::LogWrite(ref e) => format!("Failed to write logs. Error: {}", e),
-            LoggerError::LogFlush(ref e) => format!("Failed to flush logs. Error: {}", e),
-            LoggerError::LogMetricFailure(ref e) => e.to_string(),
+            LoggerError::Flush(ref e) => format!("Failed to write or flush logs. Error: {}", e),
+        };
+        write!(f, "{}", printable)
+    }
+}
+
+impl fmt::Display for MetricsError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let printable = match *self {
+            MetricsError::NeverInitialized(ref e) => e.to_string(),
+            MetricsError::AlreadyInitialized => {
+                "Reinitialization of metrics not allowed.".to_string()
+            }
+            MetricsError::Flush(ref e) => format!("Failed to write or flush metrics. Error: {}", e),
+            MetricsError::LogMetricFailure(ref e) => e.to_string(),
         };
         write!(f, "{}", printable)
     }

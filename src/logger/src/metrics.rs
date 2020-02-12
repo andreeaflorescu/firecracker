@@ -24,9 +24,88 @@
 //! If if turns out this approach is not really what we want, it's pretty easy to resort to
 //! something else, while working behind the same interface.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::io::Write;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Mutex, MutexGuard};
 
+use crate::write_to_destination;
+use error::MetricsError;
+use lazy_static::__Deref;
 use serde::{Serialize, Serializer};
+
+/// Metrics system.
+// All member fields have types which are Sync, and exhibit interior mutability, so
+// we can call logging operations using a non-mut static global variable.
+pub struct Metrics {
+    // Metrics will get flushed here.
+    metrics_buf: Mutex<Option<Box<dyn Write + Send>>>,
+    is_initialized: AtomicBool,
+}
+
+impl Metrics {
+    /// Creates a new instance of the current metrics.
+    pub fn new() -> Metrics {
+        Metrics {
+            metrics_buf: Mutex::new(None),
+            is_initialized: AtomicBool::new(false),
+        }
+    }
+
+    fn metrics_buf_guard(&self) -> MutexGuard<Option<Box<dyn Write + Send>>> {
+        match self.metrics_buf.lock() {
+            Ok(guard) => guard,
+            // If a thread panics while holding this lock, the writer within should still be usable.
+            // (we might get an incomplete log line or something like that).
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+
+    /// Initialize metrics system (once and only once).
+    pub fn init(&mut self, metrics_dest: Box<dyn Write + Send>) -> Result<(), MetricsError> {
+        if self.is_initialized.load(Ordering::Relaxed) {
+            return Err(MetricsError::AlreadyInitialized);
+        }
+        {
+            let mut g = self.metrics_buf_guard();
+
+            *g = Some(metrics_dest);
+        }
+        self.is_initialized.store(true, Ordering::Relaxed);
+        Ok(())
+    }
+
+    /// Flushes metrics to the destination provided as argument upon initialization of the metrics.
+    /// Upon failure, an error is returned if metrics is initialized and metrics could not be flushed.
+    /// Upon success, the function will return `True` (if metrics was initialized and metrics were
+    /// successfully flushed to disk) or `False` (if metrics was not yet initialized).
+    pub fn flush_metrics(&self) -> Result<bool, MetricsError> {
+        if self.is_initialized.load(Ordering::Relaxed) {
+            match serde_json::to_string(METRICS.deref()) {
+                Ok(msg) => {
+                    if let Some(guard) = self.metrics_buf_guard().as_mut() {
+                        return write_to_destination(msg, guard)
+                            .map_err(|e| {
+                                METRICS.logger.missed_metrics_count.inc();
+                                MetricsError::Flush(e)
+                            })
+                            .map(|_| true);
+                    } else {
+                        // We have not incremented `missed_metrics_count` as there is no way to push metrics
+                        // if destination lock got poisoned.
+                        panic!("Failed to write to the provided metrics destination due to poisoned lock");
+                    }
+                }
+                Err(e) => {
+                    METRICS.logger.metrics_fails.inc();
+                    return Err(MetricsError::LogMetricFailure(e.to_string()));
+                }
+            }
+        }
+        // If the metrics are not initialized, no error is thrown but we do let the user know that
+        // metrics were not flushed.
+        Ok(false)
+    }
+}
 
 /// Used for defining new types of metrics that can be either incremented with an unit
 /// or an arbitrary amount of units.
@@ -375,7 +454,7 @@ impl Serialize for SerializeToUtcTimestampMs {
 
 /// Structure storing all metrics while enforcing serialization support on them.
 #[derive(Default, Serialize)]
-pub struct FirecrackerMetrics {
+pub struct FirecrackerDefinitions {
     utc_timestamp_ms: SerializeToUtcTimestampMs,
     /// API Server related metrics.
     pub api_server: ApiServerMetrics,
@@ -383,7 +462,7 @@ pub struct FirecrackerMetrics {
     pub block: BlockDeviceMetrics,
     /// Metrics related to API GET requests.
     pub get_api_requests: GetRequestsMetrics,
-    /// Metrics relaetd to the i8042 device.
+    /// Metrics related to the i8042 device.
     pub i8042: I8042DeviceMetrics,
     /// Logging related metrics.
     pub logger: LoggerSystemMetrics,
@@ -412,7 +491,7 @@ pub struct FirecrackerMetrics {
 lazy_static! {
     /// Static instance used for handling metrics.
     ///
-    pub static ref METRICS: FirecrackerMetrics = FirecrackerMetrics::default();
+    pub static ref METRICS: FirecrackerDefinitions = FirecrackerDefinitions::default();
 }
 
 #[cfg(test)]

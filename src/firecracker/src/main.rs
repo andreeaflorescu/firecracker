@@ -24,6 +24,7 @@ use std::sync::{Arc, RwLock};
 use std::thread;
 
 use api_server::{ApiServer, Error, VmmRequest, VmmResponse};
+use logger::metrics::Metrics;
 use logger::{Metric, LOGGER, METRICS};
 use mmds::MMDS;
 use seccomp::{BpfInstructionSlice, BpfProgram, SeccompLevel};
@@ -45,8 +46,10 @@ const FIRECRACKER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn main() {
     LOGGER
-        .preinit(Some(DEFAULT_INSTANCE_ID.to_string()))
+        .configure(Some(DEFAULT_INSTANCE_ID.to_string()))
         .expect("Failed to register logger");
+
+    let metrics = Metrics::new();
 
     if let Err(e) = register_signal_handlers() {
         error!("Failed to register signal handlers: {}", e);
@@ -75,10 +78,10 @@ fn main() {
         let bt = Backtrace::new();
         error!("{:?}", bt);
 
-        // Log the metrics before aborting.
-        if let Err(e) = LOGGER.log_metrics() {
-            error!("Failed to log metrics while panicking: {}", e);
-        }
+        //        // Log the metrics before aborting.
+        //        if let Err(e) = metrics.log_metrics() {
+        //            error!("Failed to log metrics while panicking: {}", e);
+        //        }
     }));
 
     let mut arg_parser = ArgParser::new()
@@ -189,6 +192,7 @@ fn main() {
         state: InstanceState::Uninitialized,
         id: instance_id.clone(),
         vmm_version: FIRECRACKER_VERSION.to_string(),
+        name: "Firecracker".to_string(),
     }));
 
     let request_event_fd = EventFd::new(libc::EFD_NONBLOCK)
@@ -247,6 +251,7 @@ fn main() {
         to_api,
         seccomp_filter,
         vmm_config_json,
+        metrics,
     );
 }
 
@@ -268,9 +273,10 @@ fn start_vmm(
     to_api: Sender<VmmResponse>,
     seccomp_filter: BpfProgram,
     config_json: Option<String>,
+    metrics: Metrics,
 ) {
     // If this fails, consider it fatal. Use expect().
-    let mut vmm = Vmm::new(api_shared_info, &api_event_fd).expect("Cannot create VMM");
+    let mut vmm = Vmm::new(api_shared_info, &api_event_fd, metrics).expect("Cannot create VMM");
     let vmm_seccomp_filter = seccomp_filter.clone();
     let vcpu_seccomp_filter = seccomp_filter.clone();
 
@@ -349,6 +355,9 @@ fn vmm_control_event(
                     .map(|_| api_server::VmmData::Empty),
                 ConfigureLogger(logger_description) => vmm
                     .init_logger(logger_description)
+                    .map(|_| api_server::VmmData::Empty),
+                ConfigureMetrics(metrics_description) => vmm
+                    .init_metrics(metrics_description)
                     .map(|_| api_server::VmmData::Empty),
                 FlushMetrics => vmm.flush_metrics().map(|_| api_server::VmmData::Empty),
                 GetVmConfiguration => Ok(api_server::VmmData::MachineConfiguration(

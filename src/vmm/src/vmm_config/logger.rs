@@ -24,13 +24,12 @@ impl LoggerWriter {
     /// two pipes, we are opening them with `O_NONBLOCK` flag. In this case, writing to a pipe will
     /// start failing when reaching 64K of unconsumed content. Simultaneously,
     /// the `missed_metrics_count` metric will get increased.
-    pub fn new(fifo_path: &str) -> Result<LoggerWriter> {
-        let fifo = PathBuf::from(fifo_path);
+    pub fn new(fifo_path: PathBuf) -> Result<LoggerWriter> {
         OpenOptions::new()
             .custom_flags(O_NONBLOCK)
             .read(true)
             .write(true)
-            .open(&fifo)
+            .open(&fifo_path)
             .map(|t| LoggerWriter {
                 line_writer: Mutex::new(LineWriter::new(t)),
             })
@@ -79,9 +78,7 @@ pub enum LoggerLevel {
 #[serde(deny_unknown_fields)]
 pub struct LoggerConfig {
     /// Named pipe used as output for logs.
-    pub log_fifo: String,
-    /// Named pipe used as output for metrics.
-    pub metrics_fifo: String,
+    pub log_fifo: PathBuf,
     /// The level of the Logger.
     #[serde(default = "default_level")]
     pub level: LoggerLevel,
@@ -93,6 +90,13 @@ pub struct LoggerConfig {
     pub show_log_origin: bool,
 }
 
+/// Strongly typed structure used to describe the metrics.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct MetricsConfig {
+    /// Named pipe used as output for metrics.
+    pub metrics_fifo: PathBuf,
+}
+
 fn default_level() -> LoggerLevel {
     LoggerLevel::Warning
 }
@@ -102,6 +106,13 @@ fn default_level() -> LoggerLevel {
 pub enum LoggerConfigError {
     /// Cannot initialize the logger due to bad user input.
     InitializationFailure(String),
+}
+
+/// Errors associated with actions on the `LoggerConfig`.
+#[derive(Debug)]
+pub enum MetricsConfigError {
+    /// Cannot initialize the metrics due to bad user input.
+    InitializationFailure(String),
     /// Cannot flush the metrics.
     FlushMetrics(String),
 }
@@ -109,6 +120,15 @@ pub enum LoggerConfigError {
 impl Display for LoggerConfigError {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         use self::LoggerConfigError::*;
+        match *self {
+            InitializationFailure(ref err_msg) => write!(f, "{}", err_msg.replace("\"", "")),
+        }
+    }
+}
+
+impl Display for MetricsConfigError {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        use self::MetricsConfigError::*;
         match *self {
             InitializationFailure(ref err_msg) => write!(f, "{}", err_msg.replace("\"", "")),
             FlushMetrics(ref err_msg) => write!(f, "{}", err_msg.replace("\"", "")),
