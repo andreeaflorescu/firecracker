@@ -5,7 +5,7 @@ use logger::{Metric, METRICS};
 use request::{Error, ParsedRequest};
 
 pub fn parse_get_instance_info() -> Result<ParsedRequest, Error> {
-    METRICS.get_api_requests.instance_info_count.inc();
+    METRICS.app_metrics.get_api_requests.instance_info_count.inc();
     Ok(ParsedRequest::GetInstanceInfo)
 }
 

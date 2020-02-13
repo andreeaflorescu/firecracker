@@ -507,7 +507,7 @@ impl Vcpu {
         .map_err(Error::CpuId)?;
 
         filter_cpuid(&mut self.cpuid, &cpuid_vm_spec).map_err(|e| {
-            METRICS.vcpu.filter_cpuid.inc();
+            METRICS.app_metrics.vcpu.filter_cpuid.inc();
             error!("Failure in configuring CPUID for vcpu {}: {:?}", self.id, e);
             Error::CpuId(e)
         })?;
@@ -611,7 +611,7 @@ impl Vcpu {
                 #[cfg(target_arch = "x86_64")]
                 VcpuExit::IoIn(addr, data) => {
                     self.io_bus.read(u64::from(addr), data);
-                    METRICS.vcpu.exit_io_in.inc();
+                    METRICS.app_metrics.vcpu.exit_io_in.inc();
                     Ok(VcpuEmulation::Handled)
                 }
                 #[cfg(target_arch = "x86_64")]
@@ -619,13 +619,13 @@ impl Vcpu {
                     self.check_boot_complete_signal(u64::from(addr), data);
 
                     self.io_bus.write(u64::from(addr), data);
-                    METRICS.vcpu.exit_io_out.inc();
+                    METRICS.app_metrics.vcpu.exit_io_out.inc();
                     Ok(VcpuEmulation::Handled)
                 }
                 VcpuExit::MmioRead(addr, data) => {
                     if let Some(ref mmio_bus) = self.mmio_bus {
                         mmio_bus.read(addr, data);
-                        METRICS.vcpu.exit_mmio_read.inc();
+                        METRICS.app_metrics.vcpu.exit_mmio_read.inc();
                     }
                     Ok(VcpuEmulation::Handled)
                 }
@@ -635,7 +635,7 @@ impl Vcpu {
                         self.check_boot_complete_signal(addr, data);
 
                         mmio_bus.write(addr, data);
-                        METRICS.vcpu.exit_mmio_write.inc();
+                        METRICS.app_metrics.vcpu.exit_mmio_write.inc();
                     }
                     Ok(VcpuEmulation::Handled)
                 }
@@ -650,17 +650,17 @@ impl Vcpu {
                 // Documentation specifies that below kvm exits are considered
                 // errors.
                 VcpuExit::FailEntry => {
-                    METRICS.vcpu.failures.inc();
+                    METRICS.app_metrics.vcpu.failures.inc();
                     error!("Received KVM_EXIT_FAIL_ENTRY signal");
                     Err(Error::VcpuUnhandledKvmExit)
                 }
                 VcpuExit::InternalError => {
-                    METRICS.vcpu.failures.inc();
+                    METRICS.app_metrics.vcpu.failures.inc();
                     error!("Received KVM_EXIT_INTERNAL_ERROR signal");
                     Err(Error::VcpuUnhandledKvmExit)
                 }
                 r => {
-                    METRICS.vcpu.failures.inc();
+                    METRICS.app_metrics.vcpu.failures.inc();
                     // TODO: Are we sure we want to finish running a vcpu upon
                     // receiving a vm exit that is not necessarily an error?
                     error!("Unexpected exit reason on vcpu run: {:?}", r);
@@ -678,7 +678,7 @@ impl Vcpu {
                         Ok(VcpuEmulation::Interrupted)
                     }
                     _ => {
-                        METRICS.vcpu.failures.inc();
+                        METRICS.app_metrics.vcpu.failures.inc();
                         error!("Failure during vcpu run: {}", e);
                         Err(Error::VcpuUnhandledKvmExit)
                     }
@@ -793,7 +793,7 @@ impl Vcpu {
     // This is the main loop of the `Exited` state.
     fn exited(&mut self) -> StateMachine<Self> {
         if let Err(e) = self.exit_evt.write(1) {
-            METRICS.vcpu.failures.inc();
+            METRICS.app_metrics.vcpu.failures.inc();
             error!("Failed signaling vcpu exit event: {}", e);
         }
         // State machine reached its end.

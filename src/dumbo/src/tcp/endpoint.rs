@@ -140,13 +140,13 @@ impl Endpoint {
         ) {
             Ok(pair) => pair,
             Err(_) => {
-                METRICS.mmds.rx_accepted_err.inc();
+                METRICS.app_metrics.mmds.rx_accepted_err.inc();
                 return;
             }
         };
 
         if !status.is_empty() {
-            METRICS.mmds.rx_accepted_unusual.inc();
+            METRICS.app_metrics.mmds.rx_accepted_unusual.inc();
             if status.intersects(RecvStatusFlags::CONN_RESETTING) {
                 self.stop_receiving = true;
                 return;
@@ -251,7 +251,7 @@ impl Endpoint {
         ) {
             Ok(something) => something,
             Err(_) => {
-                METRICS.mmds.tx_errors.inc();
+                METRICS.app_metrics.mmds.tx_errors.inc();
                 None
             }
         }

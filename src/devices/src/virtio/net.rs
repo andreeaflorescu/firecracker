@@ -162,7 +162,7 @@ impl NetEpollHandler {
             .fetch_or(VIRTIO_MMIO_INT_VRING as usize, Ordering::SeqCst);
         self.interrupt_evt.write(1).map_err(|e| {
             error!("Failed to signal used queue: {:?}", e);
-            METRICS.net.event_fails.inc();
+            METRICS.app_metrics.net.event_fails.inc();
             DeviceError::FailedSignalingUsedQueue(e)
         })
     }
@@ -230,12 +230,12 @@ impl NetEpollHandler {
 
                     match write_result {
                         Ok(()) => {
-                            METRICS.net.rx_count.inc();
+                            METRICS.app_metrics.net.rx_count.inc();
                             write_count += source_slice.len();
                         }
                         Err(e) => {
                             error!("Failed to write slice: {:?}", e);
-                            METRICS.net.rx_fails.inc();
+                            METRICS.app_metrics.net.rx_fails.inc();
 
                             if let GuestMemoryError::MemoryAccess(
                                 _addr,
@@ -256,7 +256,7 @@ impl NetEpollHandler {
                 }
                 None => {
                     warn!("Receiving buffer is too small to hold frame of current size");
-                    METRICS.net.rx_fails.inc();
+                    METRICS.app_metrics.net.rx_fails.inc();
                     break;
                 }
             }
@@ -270,8 +270,8 @@ impl NetEpollHandler {
         self.rx.deferred_irqs = true;
 
         if write_count >= self.rx.bytes_read {
-            METRICS.net.rx_bytes_count.add(write_count);
-            METRICS.net.rx_packets_count.inc();
+            METRICS.app_metrics.net.rx_bytes_count.add(write_count);
+            METRICS.app_metrics.net.rx_packets_count.inc();
             true
         } else {
             false
@@ -291,7 +291,7 @@ impl NetEpollHandler {
     ) -> bool {
         if let Some(ns) = mmds_ns {
             if ns.detour_frame(frame_bytes_from_buf(frame_buf)) {
-                METRICS.mmds.rx_accepted.inc();
+                METRICS.app_metrics.mmds.rx_accepted.inc();
 
                 // MMDS frames are not accounted by the rate limiter.
                 rate_limiter.manual_replenish(frame_buf.len() as u64, TokenType::Bytes);
@@ -308,7 +308,7 @@ impl NetEpollHandler {
         if let Some(mac) = guest_mac {
             let _ = EthernetFrame::from_bytes(&frame_buf[vnet_hdr_len()..]).and_then(|eth_frame| {
                 if mac != eth_frame.src_mac() {
-                    METRICS.net.tx_spoofed_mac_count.inc();
+                    METRICS.app_metrics.net.tx_spoofed_mac_count.inc();
                 }
                 Ok(())
             });
@@ -317,13 +317,13 @@ impl NetEpollHandler {
         let write_result = tap.write(frame_buf);
         match write_result {
             Ok(_) => {
-                METRICS.net.tx_bytes_count.add(frame_buf.len());
-                METRICS.net.tx_packets_count.inc();
-                METRICS.net.tx_count.inc();
+                METRICS.app_metrics.net.tx_bytes_count.add(frame_buf.len());
+                METRICS.app_metrics.net.tx_packets_count.inc();
+                METRICS.app_metrics.net.tx_count.inc();
             }
             Err(e) => {
                 error!("Failed to write to tap: {:?}", e);
-                METRICS.net.tx_fails.inc();
+                METRICS.app_metrics.net.tx_fails.inc();
             }
         };
         false
@@ -335,8 +335,8 @@ impl NetEpollHandler {
             if let Some(len) = ns.write_next_frame(frame_bytes_from_buf_mut(&mut self.rx.frame_buf))
             {
                 let len = len.get();
-                METRICS.mmds.tx_frames.inc();
-                METRICS.mmds.tx_bytes.add(len);
+                METRICS.app_metrics.mmds.tx_frames.inc();
+                METRICS.app_metrics.mmds.tx_bytes.add(len);
                 init_vnet_hdr(&mut self.rx.frame_buf);
                 return Ok(vnet_hdr_len() + len);
             }
@@ -350,7 +350,7 @@ impl NetEpollHandler {
             match self.read_from_mmds_or_tap() {
                 Ok(count) => {
                     self.rx.bytes_read = count;
-                    METRICS.net.rx_count.inc();
+                    METRICS.app_metrics.net.rx_count.inc();
                     if !self.rate_limited_rx_single_frame() {
                         self.rx.deferred_frame = true;
                         break;
@@ -363,7 +363,7 @@ impl NetEpollHandler {
                         Some(err) if err == EAGAIN => (),
                         _ => {
                             error!("Failed to read tap: {:?}", e);
-                            METRICS.net.rx_fails.inc();
+                            METRICS.app_metrics.net.rx_fails.inc();
                             return Err(DeviceError::FailedReadTap);
                         }
                     };
@@ -458,11 +458,11 @@ impl NetEpollHandler {
                 match read_result {
                     Ok(()) => {
                         read_count += limit - read_count;
-                        METRICS.net.tx_count.inc();
+                        METRICS.app_metrics.net.tx_count.inc();
                     }
                     Err(e) => {
                         error!("Failed to read slice: {:?}", e);
-                        METRICS.net.tx_fails.inc();
+                        METRICS.app_metrics.net.tx_fails.inc();
 
                         if let GuestMemoryError::MemoryAccess(
                             _addr,
@@ -531,10 +531,10 @@ impl EpollHandler for NetEpollHandler {
     ) -> result::Result<(), DeviceError> {
         match device_event {
             RX_QUEUE_EVENT => {
-                METRICS.net.rx_queue_event_count.inc();
+                METRICS.app_metrics.net.rx_queue_event_count.inc();
                 if let Err(e) = self.rx.queue_evt.read() {
                     error!("Failed to get rx queue event: {:?}", e);
-                    METRICS.net.event_fails.inc();
+                    METRICS.app_metrics.net.event_fails.inc();
                     Err(DeviceError::FailedReadingQueue {
                         event_type: "rx queue event",
                         underlying: e,
@@ -550,7 +550,7 @@ impl EpollHandler for NetEpollHandler {
                 }
             }
             RX_TAP_EVENT => {
-                METRICS.net.rx_tap_event_count.inc();
+                METRICS.app_metrics.net.rx_tap_event_count.inc();
 
                 if self.rx.queue.is_empty(&self.mem) {
                     return Err(DeviceError::NoAvailBuffers);
@@ -577,10 +577,10 @@ impl EpollHandler for NetEpollHandler {
                 }
             }
             TX_QUEUE_EVENT => {
-                METRICS.net.tx_queue_event_count.inc();
+                METRICS.app_metrics.net.tx_queue_event_count.inc();
                 if let Err(e) = self.tx.queue_evt.read() {
                     error!("Failed to get tx queue event: {:?}", e);
-                    METRICS.net.event_fails.inc();
+                    METRICS.app_metrics.net.event_fails.inc();
                     Err(DeviceError::FailedReadingQueue {
                         event_type: "tx queue event",
                         underlying: e,
@@ -594,7 +594,7 @@ impl EpollHandler for NetEpollHandler {
                 }
             }
             RX_RATE_LIMITER_EVENT => {
-                METRICS.net.rx_event_rate_limiter_count.inc();
+                METRICS.app_metrics.net.rx_event_rate_limiter_count.inc();
                 // Upon rate limiter event, call the rate limiter handler
                 // and restart processing the queue.
                 match self.rx.rate_limiter.event_handler() {
@@ -603,14 +603,14 @@ impl EpollHandler for NetEpollHandler {
                         self.resume_rx()
                     }
                     Err(e) => {
-                        METRICS.net.event_fails.inc();
+                        METRICS.app_metrics.net.event_fails.inc();
                         error!("Failed to get rx rate-limiter event: {:?}", e);
                         Err(DeviceError::RateLimited(e))
                     }
                 }
             }
             TX_RATE_LIMITER_EVENT => {
-                METRICS.net.tx_rate_limiter_event_count.inc();
+                METRICS.app_metrics.net.tx_rate_limiter_event_count.inc();
                 // Upon rate limiter event, call the rate limiter handler
                 // and restart processing the queue.
                 match self.tx.rate_limiter.event_handler() {
@@ -619,7 +619,7 @@ impl EpollHandler for NetEpollHandler {
                         self.process_tx()
                     }
                     Err(e) => {
-                        METRICS.net.event_fails.inc();
+                        METRICS.app_metrics.net.event_fails.inc();
                         error!("Failed to get tx rate-limiter event: {:?}", e);
                         Err(DeviceError::RateLimited(e))
                     }
@@ -763,7 +763,7 @@ impl VirtioDevice for Net {
         let config_len = self.config_space.len() as u64;
         if offset >= config_len {
             error!("Failed to read config space");
-            METRICS.net.cfg_fails.inc();
+            METRICS.app_metrics.net.cfg_fails.inc();
             return;
         }
         if let Some(end) = offset.checked_add(data.len() as u64) {
@@ -778,7 +778,7 @@ impl VirtioDevice for Net {
         let config_len = self.config_space.len() as u64;
         if offset + data_len > config_len {
             error!("Failed to write config space");
-            METRICS.net.cfg_fails.inc();
+            METRICS.app_metrics.net.cfg_fails.inc();
             return;
         }
         let (_, right) = self.config_space.split_at_mut(offset as usize);
@@ -799,7 +799,7 @@ impl VirtioDevice for Net {
                 NUM_QUEUES,
                 queues.len()
             );
-            METRICS.net.activate_fails.inc();
+            METRICS.app_metrics.net.activate_fails.inc();
 
             return Err(ActivateError::BadActivate);
         }
@@ -863,7 +863,7 @@ impl VirtioDevice for Net {
                 ),
             )
             .map_err(|e| {
-                METRICS.net.activate_fails.inc();
+                METRICS.app_metrics.net.activate_fails.inc();
                 ActivateError::EpollCtl(e)
             })?;
 
@@ -874,7 +874,7 @@ impl VirtioDevice for Net {
                 epoll::Event::new(epoll::Events::EPOLLIN, self.epoll_config.rx_queue_token),
             )
             .map_err(|e| {
-                METRICS.net.activate_fails.inc();
+                METRICS.app_metrics.net.activate_fails.inc();
                 ActivateError::EpollCtl(e)
             })?;
 
@@ -885,7 +885,7 @@ impl VirtioDevice for Net {
                 epoll::Event::new(epoll::Events::EPOLLIN, self.epoll_config.tx_queue_token),
             )
             .map_err(|e| {
-                METRICS.net.activate_fails.inc();
+                METRICS.app_metrics.net.activate_fails.inc();
                 ActivateError::EpollCtl(e)
             })?;
 
@@ -917,7 +917,7 @@ impl VirtioDevice for Net {
 
             return Ok(());
         }
-        METRICS.net.activate_fails.inc();
+        METRICS.app_metrics.net.activate_fails.inc();
         Err(ActivateError::BadActivate)
     }
 }
@@ -1228,7 +1228,7 @@ mod tests {
             // Invalid read.
             config_mac = [0u8; MAC_ADDR_LEN];
             check_metric_after_block!(
-                &METRICS.net.cfg_fails,
+                &METRICS.app_metrics.net.cfg_fails,
                 1,
                 n.read_config(MAC_ADDR_LEN as u64 + 1, &mut config_mac)
             );
@@ -1239,7 +1239,7 @@ mod tests {
         {
             // It should fail when not enough queues and/or evts are provided.
             check_metric_after_block!(
-                &METRICS.net.activate_fails,
+                &METRICS.app_metrics.net.activate_fails,
                 1,
                 assert!(match activate_some_net(n, true, false) {
                     Err(ActivateError::BadActivate) => true,
@@ -1248,7 +1248,7 @@ mod tests {
             );
 
             check_metric_after_block!(
-                &METRICS.net.activate_fails,
+                &METRICS.app_metrics.net.activate_fails,
                 1,
                 assert!(match activate_some_net(n, false, true) {
                     Err(ActivateError::BadActivate) => true,
@@ -1257,7 +1257,7 @@ mod tests {
             );
 
             check_metric_after_block!(
-                &METRICS.net.activate_fails,
+                &METRICS.app_metrics.net.activate_fails,
                 1,
                 assert!(match activate_some_net(n, true, true) {
                     Err(ActivateError::BadActivate) => true,
@@ -1267,14 +1267,14 @@ mod tests {
 
             // Otherwise, it should be ok.
             check_metric_after_block!(
-                &METRICS.net.activate_fails,
+                &METRICS.app_metrics.net.activate_fails,
                 0,
                 assert!(activate_some_net(n, false, false).is_ok())
             );
 
             // Second activate shouldn't be ok anymore.
             check_metric_after_block!(
-                &METRICS.net.activate_fails,
+                &METRICS.app_metrics.net.activate_fails,
                 1,
                 assert!(match activate_some_net(n, false, false) {
                     Err(ActivateError::BadActivate) => true,
@@ -1292,7 +1292,7 @@ mod tests {
             assert_eq!(new_config, new_config_read);
 
             // Invalid write.
-            check_metric_after_block!(&METRICS.net.cfg_fails, 1, n.write_config(5, &new_config));
+            check_metric_after_block!(&METRICS.app_metrics.net.cfg_fails, 1, n.write_config(5, &new_config));
             // Verify old config was untouched.
             new_config_read = [0u8; 6];
             n.read_config(0, &mut new_config_read);
@@ -1342,7 +1342,7 @@ mod tests {
         // Call the code which sends the packet to the host or MMDS.
         // Validate the frame was consumed by MMDS and that the metrics reflect that.
         check_metric_after_block!(
-            &METRICS.mmds.rx_accepted,
+            &METRICS.app_metrics.mmds.rx_accepted,
             1,
             assert!(NetEpollHandler::write_to_mmds_or_tap(
                 h.mmds_ns.as_mut(),
@@ -1355,7 +1355,7 @@ mod tests {
 
         // Validate that MMDS has a response and we can retrieve it.
         check_metric_after_block!(
-            &METRICS.mmds.tx_frames,
+            &METRICS.app_metrics.mmds.tx_frames,
             1,
             h.read_from_mmds_or_tap().unwrap()
         );
@@ -1403,7 +1403,7 @@ mod tests {
 
         // Check that a legit MAC doesn't affect the spoofed MAC metric.
         check_metric_after_block!(
-            &METRICS.net.tx_spoofed_mac_count,
+            &METRICS.app_metrics.net.tx_spoofed_mac_count,
             0,
             NetEpollHandler::write_to_mmds_or_tap(
                 h.mmds_ns.as_mut(),
@@ -1416,7 +1416,7 @@ mod tests {
 
         // Check that a spoofed MAC increases our spoofed MAC metric.
         check_metric_after_block!(
-            &METRICS.net.tx_spoofed_mac_count,
+            &METRICS.app_metrics.net.tx_spoofed_mac_count,
             1,
             NetEpollHandler::write_to_mmds_or_tap(
                 h.mmds_ns.as_mut(),
@@ -1436,7 +1436,7 @@ mod tests {
         // RX rate limiter events should error since the limiter is not blocked.
         // Validate that the event failed and failure was properly accounted for.
         check_metric_after_block!(
-            &METRICS.net.event_fails,
+            &METRICS.app_metrics.net.event_fails,
             1,
             h.handle_event(RX_RATE_LIMITER_EVENT, EPOLLIN)
         );
@@ -1444,7 +1444,7 @@ mod tests {
         // TX rate limiter events should error since the limiter is not blocked.
         // Validate that the event failed and failure was properly accounted for.
         check_metric_after_block!(
-            &METRICS.net.event_fails,
+            &METRICS.app_metrics.net.event_fails,
             1,
             h.handle_event(TX_RATE_LIMITER_EVENT, EPOLLIN)
         );
@@ -1555,7 +1555,7 @@ mod tests {
                 // writable, but too short.
                 rxq.dtable[0].flags.set(VIRTQ_DESC_F_WRITE);
                 check_metric_after_block!(
-                    &METRICS.net.rx_fails,
+                    &METRICS.app_metrics.net.rx_fails,
                     1,
                     assert!(!h.rx_single_frame_no_irq_coalescing())
                 );
@@ -1625,7 +1625,7 @@ mod tests {
 
             h.interrupt_evt.write(1).unwrap();
             check_metric_after_block!(
-                &METRICS.net.rx_fails,
+                &METRICS.app_metrics.net.rx_fails,
                 1,
                 h.handle_event(RX_TAP_EVENT, EPOLLIN)
             );
@@ -1650,7 +1650,7 @@ mod tests {
 
             // rx_count increments 1 from rx_single_frame() and 1 from process_rx()
             check_metric_after_block!(
-                &METRICS.net.rx_count,
+                &METRICS.app_metrics.net.rx_count,
                 2,
                 h.handle_event(RX_QUEUE_EVENT, EPOLLIN).unwrap()
             );
@@ -1664,7 +1664,7 @@ mod tests {
             let mem = GuestMemoryMmap::from_ranges(&[(GuestAddress(0), 0x10000)]).unwrap();
             let (mut h, _txq, _rxq) = default_test_netepollhandler(&mem, test_mutators);
 
-            check_metric_after_block!(&METRICS.net.rx_fails, 1, h.process_rx());
+            check_metric_after_block!(&METRICS.app_metrics.net.rx_fails, 1, h.process_rx());
         }
     }
 
@@ -1711,7 +1711,7 @@ mod tests {
             {
                 // tx_count increments 1 from process_tx() and 1 from write_to_mmds_or_tap()
                 check_metric_after_block!(
-                    &METRICS.net.tx_count,
+                    &METRICS.app_metrics.net.tx_count,
                     2,
                     h.handle_event(TX_RATE_LIMITER_EVENT, EPOLLIN).unwrap()
                 );

@@ -7,20 +7,20 @@ use request::{Body, Error, ParsedRequest};
 use vmm::vmm_config::logger::{LoggerConfig, MetricsConfig};
 
 pub fn parse_put_logger(body: &Body) -> Result<ParsedRequest, Error> {
-    METRICS.put_api_requests.logger_count.inc();
+    METRICS.app_metrics.put_api_requests.logger_count.inc();
     Ok(ParsedRequest::Sync(VmmAction::ConfigureLogger(
         serde_json::from_slice::<LoggerConfig>(body.raw()).map_err(|e| {
-            METRICS.put_api_requests.logger_fails.inc();
+            METRICS.app_metrics.put_api_requests.logger_fails.inc();
             Error::SerdeJson(e)
         })?,
     )))
 }
 
 pub fn parse_put_metrics(body: &Body) -> Result<ParsedRequest, Error> {
-    METRICS.put_api_requests.logger_count.inc();
+    METRICS.app_metrics.put_api_requests.logger_count.inc();
     Ok(ParsedRequest::Sync(VmmAction::ConfigureMetrics(
         serde_json::from_slice::<MetricsConfig>(body.raw()).map_err(|e| {
-            METRICS.put_api_requests.logger_fails.inc();
+            METRICS.app_metrics.put_api_requests.logger_fails.inc();
             Error::SerdeJson(e)
         })?,
     )))

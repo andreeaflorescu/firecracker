@@ -203,7 +203,7 @@ impl BusDevice for I8042Device {
     fn read(&mut self, offset: u64, data: &mut [u8]) {
         // All our ports are byte-wide. We don't know how to handle any wider data.
         if data.len() != 1 {
-            METRICS.i8042.missed_read_count.inc();
+            METRICS.app_metrics.i8042.missed_read_count.inc();
             return;
         }
 
@@ -228,16 +228,16 @@ impl BusDevice for I8042Device {
             _ => read_ok = false,
         }
         if read_ok {
-            METRICS.i8042.read_count.add(data.len());
+            METRICS.app_metrics.i8042.read_count.add(data.len());
         } else {
-            METRICS.i8042.missed_read_count.inc();
+            METRICS.app_metrics.i8042.missed_read_count.inc();
         }
     }
 
     fn write(&mut self, offset: u64, data: &[u8]) {
         // All our ports are byte-wide. We don't know how to handle any wider data.
         if data.len() != 1 {
-            METRICS.i8042.missed_write_count.inc();
+            METRICS.app_metrics.i8042.missed_write_count.inc();
             return;
         }
 
@@ -250,9 +250,9 @@ impl BusDevice for I8042Device {
                 // thread wakes up to handle this event.
                 if let Err(e) = self.reset_evt.write(1) {
                     error!("Failed to trigger i8042 reset event: {:?}", e);
-                    METRICS.i8042.error_count.inc();
+                    METRICS.app_metrics.i8042.error_count.inc();
                 }
-                METRICS.i8042.reset_count.inc();
+                METRICS.app_metrics.i8042.reset_count.inc();
             }
             OFS_STATUS if data[0] == CMD_READ_CTR => {
                 // The guest wants to read the control register.
@@ -320,9 +320,9 @@ impl BusDevice for I8042Device {
         }
 
         if write_ok {
-            METRICS.i8042.write_count.inc();
+            METRICS.app_metrics.i8042.write_count.inc();
         } else {
-            METRICS.i8042.missed_write_count.inc();
+            METRICS.app_metrics.i8042.missed_write_count.inc();
         }
     }
 }
@@ -365,7 +365,7 @@ mod tests {
         assert_eq!(data[0], CMD_RESET_CPU);
 
         // Check invalid `write`s.
-        let before = METRICS.i8042.missed_write_count.count();
+        let before = METRICS.app_metrics.i8042.missed_write_count.count();
         // offset != 0.
         i8042.write(1, &data);
         // data != CMD_RESET_CPU
@@ -374,7 +374,7 @@ mod tests {
         // data.len() != 1
         let data = [CMD_RESET_CPU; 2];
         i8042.write(1, &data);
-        assert_eq!(METRICS.i8042.missed_write_count.count(), before + 3);
+        assert_eq!(METRICS.app_metrics.i8042.missed_write_count.count(), before + 3);
     }
 
     #[test]

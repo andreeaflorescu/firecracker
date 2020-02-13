@@ -65,7 +65,7 @@ impl <T: Serialize> Metrics<T> {
     }
 
     /// Initialize metrics system (once and only once).
-    pub fn init(&mut self, metrics_dest: Box<dyn Write + Send>) -> Result<(), MetricsError> {
+    pub fn init(&self, metrics_dest: Box<dyn Write + Send>) -> Result<(), MetricsError> {
         if self.is_initialized.load(Ordering::Relaxed) {
             return Err(MetricsError::AlreadyInitialized);
         }

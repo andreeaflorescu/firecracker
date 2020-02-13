@@ -7,14 +7,14 @@ use request::{method_to_error, Body, Error, Method, ParsedRequest, StatusCode};
 use vmm::vmm_config::machine_config::VmConfig;
 
 pub fn parse_get_machine_config() -> Result<ParsedRequest, Error> {
-    METRICS.get_api_requests.machine_cfg_count.inc();
+    METRICS.app_metrics.get_api_requests.machine_cfg_count.inc();
     Ok(ParsedRequest::Sync(VmmAction::GetVmConfiguration))
 }
 
 pub fn parse_put_machine_config(body: &Body) -> Result<ParsedRequest, Error> {
-    METRICS.put_api_requests.machine_cfg_count.inc();
+    METRICS.app_metrics.put_api_requests.machine_cfg_count.inc();
     let vm_config = serde_json::from_slice::<VmConfig>(body.raw()).map_err(|e| {
-        METRICS.put_api_requests.machine_cfg_fails.inc();
+        METRICS.app_metrics.put_api_requests.machine_cfg_fails.inc();
         Error::SerdeJson(e)
     })?;
     if vm_config.vcpu_count.is_none()
@@ -32,9 +32,9 @@ pub fn parse_put_machine_config(body: &Body) -> Result<ParsedRequest, Error> {
 }
 
 pub fn parse_patch_machine_config(body: &Body) -> Result<ParsedRequest, Error> {
-    METRICS.patch_api_requests.machine_cfg_count.inc();
+    METRICS.app_metrics.patch_api_requests.machine_cfg_count.inc();
     let vm_config = serde_json::from_slice::<VmConfig>(body.raw()).map_err(|e| {
-        METRICS.patch_api_requests.machine_cfg_fails.inc();
+        METRICS.app_metrics.patch_api_requests.machine_cfg_fails.inc();
         Error::SerdeJson(e)
     })?;
     if vm_config.vcpu_count.is_none()

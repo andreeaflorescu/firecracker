@@ -167,6 +167,7 @@ impl ApiServer {
             let delta_us =
                 (utils::time::get_time(utils::time::ClockType::Monotonic) / 1000) - start_time;
             METRICS
+                .app_metrics
                 .api_server
                 .process_startup_time_us
                 .add(delta_us as usize);
@@ -176,6 +177,7 @@ impl ApiServer {
             let delta_us =
                 utils::time::get_time(utils::time::ClockType::ProcessCpu) / 1000 - cpu_start_time;
             METRICS
+                .app_metrics
                 .api_server
                 .process_startup_time_cpu_us
                 .add(delta_us as usize);
@@ -250,7 +252,7 @@ impl ApiServer {
             Ok(body) => ApiServer::json_response(StatusCode::OK, body),
             Err(e) => {
                 // This is an api server metrics as the shared info is obtained internally.
-                METRICS.get_api_requests.instance_info_fails.inc();
+                METRICS.app_metrics.get_api_requests.instance_info_fails.inc();
                 ApiServer::json_response(
                     StatusCode::BadRequest,
                     ApiServer::json_fault_message(e.to_string()),

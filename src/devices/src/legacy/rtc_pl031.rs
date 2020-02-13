@@ -104,7 +104,7 @@ impl RTC {
                 // section of a motherboard's BIOS setup. This is functionality that extends beyond
                 // Firecracker intended use. However, we increment a metric just in case.
                 self.match_value = val;
-                METRICS.rtc.missed_write_count.inc();
+                METRICS.app_metrics.rtc.missed_write_count.inc();
             }
             RTCLR => {
                 self.load = val;
@@ -144,7 +144,7 @@ impl BusDevice for RTC {
             v = match offset {
                 RTCDR => self.get_time(),
                 RTCMR => {
-                    METRICS.rtc.missed_read_count.inc();
+                    METRICS.app_metrics.rtc.missed_read_count.inc();
                     // Even though we are not implementing RTC alarm we return the last value
                     self.match_value
                 }
@@ -167,7 +167,7 @@ impl BusDevice for RTC {
                 offset,
                 data.len()
             );
-            METRICS.rtc.error_count.inc();
+            METRICS.app_metrics.rtc.error_count.inc();
         }
     }
 
@@ -176,7 +176,7 @@ impl BusDevice for RTC {
             let v = byte_order::read_le_u32(&data[..]);
             if let Err(e) = self.handle_write(offset, v) {
                 warn!("Failed to write to RTC PL031 device: {}", e);
-                METRICS.rtc.error_count.inc();
+                METRICS.app_metrics.rtc.error_count.inc();
             }
         } else {
             warn!(
@@ -184,7 +184,7 @@ impl BusDevice for RTC {
                 offset,
                 data.len()
             );
-            METRICS.rtc.error_count.inc();
+            METRICS.app_metrics.rtc.error_count.inc();
         }
     }
 }
@@ -241,10 +241,10 @@ mod tests {
         // The interrupt line should be on.
         assert!(rtc.interrupt_evt.read().unwrap() > 1);
         let v_before = byte_order::read_le_u32(&data[..]);
-        let no_errors_before = METRICS.rtc.error_count.count();
+        let no_errors_before = METRICS.app_metrics.rtc.error_count.count();
 
         rtc.read(RTCICR, &mut data);
-        let no_errors_after = METRICS.rtc.error_count.count();
+        let no_errors_after = METRICS.app_metrics.rtc.error_count.count();
         let v = byte_order::read_le_u32(&data[..]);
         // ICR is a  write only register. Data received should stay equal to data sent.
         assert_eq!(v, v_before);
@@ -260,9 +260,9 @@ mod tests {
         // Attempts to write beyond the writable space. Using here the space used to read
         // the CID and PID from.
         byte_order::write_le_u32(&mut data, 0);
-        let no_errors_before = METRICS.rtc.error_count.count();
+        let no_errors_before = METRICS.app_metrics.rtc.error_count.count();
         rtc.write(AMBA_ID_LOW, &mut data);
-        let no_errors_after = METRICS.rtc.error_count.count();
+        let no_errors_after = METRICS.app_metrics.rtc.error_count.count();
         assert_eq!(no_errors_after - no_errors_before, 1);
         // However, reading from the AMBA_ID_LOW should succeed upon read.
 

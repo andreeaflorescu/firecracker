@@ -76,21 +76,21 @@ impl PatchDrivePayload {
 }
 
 pub fn parse_put_drive(body: &Body, id_from_path: Option<&&str>) -> Result<ParsedRequest, Error> {
-    METRICS.put_api_requests.drive_count.inc();
+    METRICS.app_metrics.put_api_requests.drive_count.inc();
     let id = if let Some(id) = id_from_path {
         checked_id(id)?
     } else {
-        METRICS.put_api_requests.drive_fails.inc();
+        METRICS.app_metrics.put_api_requests.drive_fails.inc();
         return Err(Error::EmptyID);
     };
 
     let device_cfg = serde_json::from_slice::<BlockDeviceConfig>(body.raw()).map_err(|e| {
-        METRICS.put_api_requests.drive_fails.inc();
+        METRICS.app_metrics.put_api_requests.drive_fails.inc();
         Error::SerdeJson(e)
     })?;
 
     if id != device_cfg.drive_id {
-        METRICS.put_api_requests.drive_fails.inc();
+        METRICS.app_metrics.put_api_requests.drive_fails.inc();
         Err(Error::Generic(
             StatusCode::BadRequest,
             "The id from the path does not match the id from the body!".to_string(),
@@ -103,17 +103,17 @@ pub fn parse_put_drive(body: &Body, id_from_path: Option<&&str>) -> Result<Parse
 }
 
 pub fn parse_patch_drive(body: &Body, id_from_path: Option<&&str>) -> Result<ParsedRequest, Error> {
-    METRICS.patch_api_requests.drive_count.inc();
+    METRICS.app_metrics.patch_api_requests.drive_count.inc();
     let id = if let Some(id) = id_from_path {
         checked_id(id)?
     } else {
-        METRICS.patch_api_requests.drive_fails.inc();
+        METRICS.app_metrics.patch_api_requests.drive_fails.inc();
         return Err(Error::EmptyID);
     };
 
     let patch_drive_payload = PatchDrivePayload {
         fields: serde_json::from_slice(body.raw()).map_err(|e| {
-            METRICS.patch_api_requests.drive_fails.inc();
+            METRICS.app_metrics.patch_api_requests.drive_fails.inc();
             Error::SerdeJson(e)
         })?,
     };
@@ -123,7 +123,7 @@ pub fn parse_patch_drive(body: &Body, id_from_path: Option<&&str>) -> Result<Par
     let path_on_host: String = patch_drive_payload.get_string_field_unchecked("path_on_host");
 
     if id != drive_id.as_str() {
-        METRICS.patch_api_requests.drive_fails.inc();
+        METRICS.app_metrics.patch_api_requests.drive_fails.inc();
         return Err(Error::Generic(
             StatusCode::BadRequest,
             String::from("The id from the path does not match the id from the body!"),

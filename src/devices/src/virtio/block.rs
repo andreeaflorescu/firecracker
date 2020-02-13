@@ -271,19 +271,19 @@ impl Request {
             RequestType::In => {
                 mem.read_from(self.data_addr, disk, self.data_len as usize)
                     .map_err(ExecuteError::Read)?;
-                METRICS.block.read_bytes.add(self.data_len as usize);
-                METRICS.block.read_count.inc();
+                METRICS.app_metrics.block.read_bytes.add(self.data_len as usize);
+                METRICS.app_metrics.block.read_count.inc();
                 return Ok(self.data_len);
             }
             RequestType::Out => {
                 mem.write_to(self.data_addr, disk, self.data_len as usize)
                     .map_err(ExecuteError::Write)?;
-                METRICS.block.write_bytes.add(self.data_len as usize);
-                METRICS.block.write_count.inc();
+                METRICS.app_metrics.block.write_bytes.add(self.data_len as usize);
+                METRICS.app_metrics.block.write_count.inc();
             }
             RequestType::Flush => match disk.flush() {
                 Ok(_) => {
-                    METRICS.block.flush_count.inc();
+                    METRICS.app_metrics.block.flush_count.inc();
                     return Ok(0);
                 }
                 Err(e) => return Err(ExecuteError::Flush(e)),
@@ -361,7 +361,7 @@ impl BlockEpollHandler {
                         }
                         Err(e) => {
                             error!("Failed to execute request: {:?}", e);
-                            METRICS.block.invalid_reqs_count.inc();
+                            METRICS.app_metrics.block.invalid_reqs_count.inc();
                             len = 1; // We need at least 1 byte for the status.
                             e.status()
                         }
@@ -372,7 +372,7 @@ impl BlockEpollHandler {
                 }
                 Err(e) => {
                     error!("Failed to parse available descriptor chain: {:?}", e);
-                    METRICS.block.execute_fails.inc();
+                    METRICS.app_metrics.block.execute_fails.inc();
                     len = 0;
                 }
             }
@@ -388,7 +388,7 @@ impl BlockEpollHandler {
             .fetch_or(VIRTIO_MMIO_INT_VRING as usize, Ordering::SeqCst);
         self.interrupt_evt.write(1).map_err(|e| {
             error!("Failed to signal used queue: {:?}", e);
-            METRICS.block.event_fails.inc();
+            METRICS.app_metrics.block.event_fails.inc();
             DeviceError::FailedSignalingUsedQueue(e)
         })
     }
@@ -402,7 +402,7 @@ impl BlockEpollHandler {
             .map_err(DeviceError::IoError)?
             / SECTOR_SIZE;
         self.disk_image_id = build_disk_image_id(&self.disk_image);
-        METRICS.block.update_count.inc();
+        METRICS.app_metrics.block.update_count.inc();
         Ok(())
     }
 }
@@ -415,10 +415,10 @@ impl EpollHandler for BlockEpollHandler {
     ) -> result::Result<(), DeviceError> {
         match device_event {
             QUEUE_AVAIL_EVENT => {
-                METRICS.block.queue_event_count.inc();
+                METRICS.app_metrics.block.queue_event_count.inc();
                 if let Err(e) = self.queue_evt.read() {
                     error!("Failed to get queue event: {:?}", e);
-                    METRICS.block.event_fails.inc();
+                    METRICS.app_metrics.block.event_fails.inc();
                     Err(DeviceError::FailedReadingQueue {
                         event_type: "queue event",
                         underlying: e,
@@ -431,7 +431,7 @@ impl EpollHandler for BlockEpollHandler {
                 }
             }
             RATE_LIMITER_EVENT => {
-                METRICS.block.rate_limiter_event_count.inc();
+                METRICS.app_metrics.block.rate_limiter_event_count.inc();
                 // Upon rate limiter event, call the rate limiter handler
                 // and restart processing the queue.
                 if self.rate_limiter.event_handler().is_ok() && self.process_queue(0) {
@@ -557,7 +557,7 @@ impl VirtioDevice for Block {
         let config_len = self.config_space.len() as u64;
         if offset >= config_len {
             error!("Failed to read config space");
-            METRICS.block.cfg_fails.inc();
+            METRICS.app_metrics.block.cfg_fails.inc();
             return;
         }
         if let Some(end) = offset.checked_add(data.len() as u64) {
@@ -572,7 +572,7 @@ impl VirtioDevice for Block {
         let config_len = self.config_space.len() as u64;
         if offset + data_len > config_len {
             error!("Failed to write config space");
-            METRICS.block.cfg_fails.inc();
+            METRICS.app_metrics.block.cfg_fails.inc();
             return;
         }
         let (_, right) = self.config_space.split_at_mut(offset as usize);
@@ -593,7 +593,7 @@ impl VirtioDevice for Block {
                 NUM_QUEUES,
                 queues.len()
             );
-            METRICS.block.activate_fails.inc();
+            METRICS.app_metrics.block.activate_fails.inc();
             return Err(ActivateError::BadActivate);
         }
 
@@ -629,7 +629,7 @@ impl VirtioDevice for Block {
                 epoll::Event::new(epoll::Events::EPOLLIN, self.epoll_config.q_avail_token),
             )
             .map_err(|e| {
-                METRICS.block.activate_fails.inc();
+                METRICS.app_metrics.block.activate_fails.inc();
                 ActivateError::EpollCtl(e)
             })?;
 
@@ -641,14 +641,14 @@ impl VirtioDevice for Block {
                     epoll::Event::new(epoll::Events::EPOLLIN, self.epoll_config.rate_limiter_token),
                 )
                 .map_err(|e| {
-                    METRICS.block.activate_fails.inc();
+                    METRICS.app_metrics.block.activate_fails.inc();
                     ActivateError::EpollCtl(e)
                 })?;
             }
 
             return Ok(());
         }
-        METRICS.block.activate_fails.inc();
+        METRICS.app_metrics.block.activate_fails.inc();
         Err(ActivateError::BadActivate)
     }
 }
@@ -1003,7 +1003,7 @@ mod tests {
             // Invalid read.
             num_sectors = [0xd, 0xe, 0xa, 0xd];
             check_metric_after_block!(
-                &METRICS.block.cfg_fails,
+                &METRICS.app_metrics.block.cfg_fails,
                 1,
                 b.read_config(CONFIG_SPACE_SIZE as u64 + 1, &mut num_sectors)
             );
@@ -1033,7 +1033,7 @@ mod tests {
         {
             // It should fail when not enough queues and/or evts are provided.
             check_metric_after_block!(
-                &METRICS.block.activate_fails,
+                &METRICS.app_metrics.block.activate_fails,
                 1,
                 assert!(match activate_block_with_modifiers(b, true, false) {
                     Err(ActivateError::BadActivate) => true,
@@ -1041,7 +1041,7 @@ mod tests {
                 })
             );
             check_metric_after_block!(
-                &METRICS.block.activate_fails,
+                &METRICS.app_metrics.block.activate_fails,
                 1,
                 assert!(match activate_block_with_modifiers(b, false, true) {
                     Err(ActivateError::BadActivate) => true,
@@ -1049,7 +1049,7 @@ mod tests {
                 })
             );
             check_metric_after_block!(
-                &METRICS.block.activate_fails,
+                &METRICS.app_metrics.block.activate_fails,
                 1,
                 assert!(match activate_block_with_modifiers(b, true, true) {
                     Err(ActivateError::BadActivate) => true,
@@ -1061,7 +1061,7 @@ mod tests {
 
             // Second activate shouldn't be ok anymore.
             check_metric_after_block!(
-                &METRICS.block.activate_fails,
+                &METRICS.app_metrics.block.activate_fails,
                 1,
                 assert!(match activate_block_with_modifiers(b, false, false) {
                     Err(ActivateError::BadActivate) => true,
@@ -1078,7 +1078,7 @@ mod tests {
             b.read_config(0, &mut new_config_read);
             assert_eq!(new_config, new_config_read);
             // Invalid write.
-            check_metric_after_block!(&METRICS.block.cfg_fails, 1, b.write_config(5, &new_config));
+            check_metric_after_block!(&METRICS.app_metrics.block.cfg_fails, 1, b.write_config(5, &new_config));
             // Make sure nothing got written.
             new_config_read = [0u8; 8];
             b.read_config(0, &mut new_config_read);
@@ -1229,7 +1229,7 @@ mod tests {
             m.write_obj::<u64>(123_456_789, data_addr).unwrap();
 
             check_metric_after_block!(
-                &METRICS.block.write_count,
+                &METRICS.app_metrics.block.write_count,
                 1,
                 invoke_handler_for_queue_event(&mut h)
             );
@@ -1253,7 +1253,7 @@ mod tests {
                 .set(VIRTQ_DESC_F_NEXT | VIRTQ_DESC_F_WRITE);
 
             check_metric_after_block!(
-                &METRICS.block.read_count,
+                &METRICS.app_metrics.block.read_count,
                 1,
                 invoke_handler_for_queue_event(&mut h)
             );

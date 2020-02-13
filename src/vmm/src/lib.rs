@@ -32,6 +32,7 @@ extern crate seccomp;
 extern crate utils;
 extern crate vm_memory;
 
+use std::ops::Deref;
 /// Syscalls allowed through the seccomp filter.
 pub mod default_syscalls;
 mod device_manager;
@@ -412,8 +413,6 @@ pub struct Vmm {
     epoll_context: EpollContext,
 
     write_metrics_event_fd: TimerFd,
-
-    metrics: Metrics,
 }
 
 impl Vmm {
@@ -421,7 +420,6 @@ impl Vmm {
     pub fn new(
         shared_info: Arc<RwLock<InstanceInfo>>,
         control_fd: &dyn AsRawFd,
-        metrics: Metrics,
     ) -> Result<Self> {
         let mut epoll_context = EpollContext::new()?;
         // If this fails, it's fatal; using expect() to crash.
@@ -478,7 +476,6 @@ impl Vmm {
             device_configs,
             epoll_context,
             write_metrics_event_fd,
-            metrics,
         })
     }
 
@@ -704,7 +701,7 @@ impl Vmm {
     }
 
     fn write_metrics(&mut self) -> result::Result<(), MetricsError> {
-        self.metrics.flush_metrics().map(|_| ())
+        METRICS.flush_metrics().map(|_| ())
     }
 
     fn init_guest_memory(&mut self) -> std::result::Result<(), StartMicrovmError> {
@@ -1204,8 +1201,8 @@ impl Vmm {
             .set_state(timer_state, SetTimeFlags::Default);
 
         // Log the metrics straight away to check the process startup time.
-        if self.metrics.flush_metrics().is_err() {
-            METRICS.logger.missed_metrics_count.inc();
+        if METRICS.flush_metrics().is_err() {
+            METRICS.app_metrics.logger.missed_metrics_count.inc();
         }
 
         Ok(())
@@ -1231,7 +1228,7 @@ impl Vmm {
         }
 
         // Log the metrics before exiting.
-        if let Err(e) = self.metrics.flush_metrics() {
+        if let Err(e) = METRICS.flush_metrics() {
             error!("Failed to log metrics while stopping: {}", e);
         }
 
@@ -1302,7 +1299,7 @@ impl Vmm {
                     }
                 }
                 Some(EpollDispatch::DeviceHandler(device_idx, device_token)) => {
-                    METRICS.vmm.device_events.inc();
+                    METRICS.app_metrics.vmm.device_events.inc();
                     match self
                         .epoll_context
                         .get_device_handler_by_handler_id(device_idx)
@@ -1635,7 +1632,7 @@ impl Vmm {
         //        })?;
         //        return Ok(self.metrics.init(Box::new(logger_writer)));
 
-        self.metrics
+        METRICS
             .init(Box::new(
                 LoggerWriter::new(metrics_cfg.metrics_fifo).map_err(|e| {
                     VmmActionError::Metrics(

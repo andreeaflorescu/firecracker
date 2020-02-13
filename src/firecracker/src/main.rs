@@ -49,8 +49,6 @@ fn main() {
         .configure(Some(DEFAULT_INSTANCE_ID.to_string()))
         .expect("Failed to register logger");
 
-    let metrics = Metrics::new();
-
     if let Err(e) = register_signal_handlers() {
         error!("Failed to register signal handlers: {}", e);
         process::exit(i32::from(vmm::FC_EXIT_CODE_GENERIC_ERROR));
@@ -74,14 +72,14 @@ fn main() {
             );
         }
 
-        METRICS.vmm.panic_count.inc();
+        METRICS.app_metrics.vmm.panic_count.inc();
         let bt = Backtrace::new();
         error!("{:?}", bt);
 
-        //        // Log the metrics before aborting.
-        //        if let Err(e) = metrics.log_metrics() {
-        //            error!("Failed to log metrics while panicking: {}", e);
-        //        }
+        // Log the metrics before aborting.
+        if let Err(e) = METRICS.flush_metrics() {
+            error!("Failed to log metrics while panicking: {}", e);
+        }
     }));
 
     let mut arg_parser = ArgParser::new()
@@ -251,7 +249,6 @@ fn main() {
         to_api,
         seccomp_filter,
         vmm_config_json,
-        metrics,
     );
 }
 
@@ -273,10 +270,9 @@ fn start_vmm(
     to_api: Sender<VmmResponse>,
     seccomp_filter: BpfProgram,
     config_json: Option<String>,
-    metrics: Metrics,
 ) {
     // If this fails, consider it fatal. Use expect().
-    let mut vmm = Vmm::new(api_shared_info, &api_event_fd, metrics).expect("Cannot create VMM");
+    let mut vmm = Vmm::new(api_shared_info, &api_event_fd).expect("Cannot create VMM");
     let vmm_seccomp_filter = seccomp_filter.clone();
     let vcpu_seccomp_filter = seccomp_filter.clone();
 

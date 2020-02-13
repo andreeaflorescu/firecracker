@@ -167,9 +167,9 @@ impl Serial {
                 } else {
                     if let Some(out) = self.out.as_mut() {
                         out.write_all(&[value])?;
-                        METRICS.uart.write_count.inc();
+                        METRICS.app_metrics.uart.write_count.inc();
                         out.flush()?;
-                        METRICS.uart.flush_count.inc();
+                        METRICS.app_metrics.uart.flush_count.inc();
                     }
                     self.thr_empty()?;
                 }
@@ -193,7 +193,7 @@ impl Serial {
                 if self.in_buffer.len() <= 1 {
                     self.line_status &= !LSR_DATA_BIT;
                 }
-                METRICS.uart.read_count.inc();
+                METRICS.app_metrics.uart.read_count.inc();
                 self.in_buffer.pop_front().unwrap_or_default()
             }
             IER => self.interrupt_enable,
@@ -225,7 +225,7 @@ impl RawIOHandler for Serial {
 impl BusDevice for Serial {
     fn read(&mut self, offset: u64, data: &mut [u8]) {
         if data.len() != 1 {
-            METRICS.uart.missed_read_count.inc();
+            METRICS.app_metrics.uart.missed_read_count.inc();
             return;
         }
 
@@ -234,12 +234,12 @@ impl BusDevice for Serial {
 
     fn write(&mut self, offset: u64, data: &[u8]) {
         if data.len() != 1 {
-            METRICS.uart.missed_write_count.inc();
+            METRICS.app_metrics.uart.missed_write_count.inc();
             return;
         }
         if let Err(e) = self.handle_write(offset as u8, data[0]) {
             error!("Failed the write to serial: {}", e);
-            METRICS.uart.error_count.inc();
+            METRICS.app_metrics.uart.error_count.inc();
         }
     }
 }
@@ -401,11 +401,11 @@ mod tests {
         const LEN: usize = 1;
         let mut serial = Serial::new_sink(EventFd::new(libc::EFD_NONBLOCK).unwrap());
 
-        let missed_writes_before = METRICS.uart.missed_write_count.count();
+        let missed_writes_before = METRICS.app_metrics.uart.missed_write_count.count();
         // Trying to write data of length different than the one that we initialized the device with
         // should increase the `missed_write_count` metric.
         serial.write(u64::from(DATA), &[b'x', b'x']);
-        let missed_writes_after = METRICS.uart.missed_write_count.count();
+        let missed_writes_after = METRICS.app_metrics.uart.missed_write_count.count();
         assert_eq!(missed_writes_before, missed_writes_after - 1);
 
         let data = [b'x'; LEN];
