@@ -10,6 +10,8 @@ extern crate serde_json;
 extern crate utils;
 
 pub mod error;
+// TODO: Either make the modules public or use `pub use log::*; pub use metrics::{Metric, Metrics, METRICS}`.
+// We shouldn't expose the same functionality in two ways.
 pub mod logger;
 pub mod metrics;
 
@@ -22,11 +24,13 @@ use std::io::Write;
 
 /// Auxiliary function to flush a message to a entity implementing `Write` and `Send` traits.
 // This is used to either flush human-readable logs or metrics.
+// TODO: msg shouldn't be mut;
+// TODO: This function doesn't need to be public;
+// TODO: nit: buffer can be named destination
 pub fn write_to_destination(
-    mut msg: String,
+    msg: String,
     buffer: &mut (dyn Write + Send),
 ) -> Result<(), std::io::Error> {
-    msg = format!("{}\n", msg);
-    buffer.write(&msg.as_bytes())?;
+    buffer.write(&(format!("{}\n", msg)).as_bytes())?;
     buffer.flush()
 }

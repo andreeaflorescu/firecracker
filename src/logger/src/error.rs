@@ -68,6 +68,8 @@ mod tests {
     use super::*;
     use std::io::ErrorKind;
 
+    /*
+
     #[test]
     fn test_error_messages() {
         assert!(format!(
@@ -138,4 +140,5 @@ mod tests {
             "Failed to log metrics."
         );
     }
+    */
 }

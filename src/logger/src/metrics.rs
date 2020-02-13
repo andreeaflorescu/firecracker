@@ -36,18 +36,22 @@ use serde::{Serialize, Serializer};
 /// Metrics system.
 // All member fields have types which are Sync, and exhibit interior mutability, so
 // we can call logging operations using a non-mut static global variable.
-pub struct Metrics {
+pub struct Metrics <T: Serialize> {
     // Metrics will get flushed here.
     metrics_buf: Mutex<Option<Box<dyn Write + Send>>>,
     is_initialized: AtomicBool,
+    pub app_metrics: T,
 }
 
-impl Metrics {
+impl <T: Serialize> Metrics<T> {
     /// Creates a new instance of the current metrics.
-    pub fn new() -> Metrics {
+    // TODO: We need a better name than app_metrics (something that says that these are the actual
+    // values that we are writing to the metrics_destination.
+    pub fn new(app_metrics: T) -> Metrics<T> {
         Metrics {
             metrics_buf: Mutex::new(None),
             is_initialized: AtomicBool::new(false),
+            app_metrics,
         }
     }
 
@@ -78,16 +82,14 @@ impl Metrics {
     /// Upon failure, an error is returned if metrics is initialized and metrics could not be flushed.
     /// Upon success, the function will return `True` (if metrics was initialized and metrics were
     /// successfully flushed to disk) or `False` (if metrics was not yet initialized).
+    // TODO: `flush` is enough because this function is called in the Metrics context.
     pub fn flush_metrics(&self) -> Result<bool, MetricsError> {
         if self.is_initialized.load(Ordering::Relaxed) {
-            match serde_json::to_string(METRICS.deref()) {
+            match serde_json::to_string(&self.app_metrics) {
                 Ok(msg) => {
                     if let Some(guard) = self.metrics_buf_guard().as_mut() {
                         return write_to_destination(msg, guard)
-                            .map_err(|e| {
-                                METRICS.logger.missed_metrics_count.inc();
-                                MetricsError::Flush(e)
-                            })
+                            .map_err(MetricsError::Flush)
                             .map(|_| true);
                     } else {
                         // We have not incremented `missed_metrics_count` as there is no way to push metrics
@@ -96,7 +98,6 @@ impl Metrics {
                     }
                 }
                 Err(e) => {
-                    METRICS.logger.metrics_fails.inc();
                     return Err(MetricsError::LogMetricFailure(e.to_string()));
                 }
             }
@@ -491,7 +492,7 @@ pub struct FirecrackerDefinitions {
 lazy_static! {
     /// Static instance used for handling metrics.
     ///
-    pub static ref METRICS: FirecrackerDefinitions = FirecrackerDefinitions::default();
+    pub static ref METRICS: Metrics<FirecrackerDefinitions> = Metrics::new(FirecrackerDefinitions::default());
 }
 
 #[cfg(test)]
@@ -501,7 +502,7 @@ mod tests {
 
     use std::sync::Arc;
     use std::thread;
-
+    /*
     #[test]
     fn test_metric() {
         // Test SharedMetric.
@@ -543,4 +544,5 @@ mod tests {
         let s = serde_json::to_string(&FirecrackerMetrics::default());
         assert!(s.is_ok());
     }
+    */
 }

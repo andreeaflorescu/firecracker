@@ -362,12 +362,12 @@ impl Logger {
         match STATE.compare_and_swap(UNINITIALIZED, locked_state, Ordering::SeqCst) {
             INITIALIZING => {
                 // If the logger is initializing, an error will be returned.
-                METRICS.logger.log_fails.inc();
+                METRICS.app_metrics.logger.log_fails.inc();
                 return Err(LoggerError::IsInitializing);
             }
             INITIALIZED => {
                 // If the logger was already initialized, an error will be returned.
-                METRICS.logger.log_fails.inc();
+                METRICS.app_metrics.logger.log_fails.inc();
                 return Err(LoggerError::AlreadyInitialized);
             }
             _ => {}
@@ -468,10 +468,10 @@ impl Logger {
             if let Some(guard) = self.log_buf_guard().as_mut() {
                 if write_to_destination(msg, guard).is_err() {
                     // No reason to log the error to stderr here, just increment the metric.
-                    METRICS.logger.missed_log_count.inc();
+                    METRICS.app_metrics.logger.missed_log_count.inc();
                 }
             } else {
-                METRICS.logger.missed_log_count.inc();
+                METRICS.app_metrics.logger.missed_log_count.inc();
                 panic!("Failed to write to the provided log destination due to poisoned lock");
             }
         } else if msg_level <= Level::Warn {
@@ -510,6 +510,7 @@ impl Log for Logger {
 
 #[cfg(test)]
 mod tests {
+    /*
     use std::fs::{File, OpenOptions};
     use std::io::BufRead;
     use std::io::BufReader;
@@ -683,4 +684,5 @@ mod tests {
         assert_eq!(l.show_file_path(), true);
         assert_eq!(l.show_line_numbers(), true);
     }
+    */
 }
