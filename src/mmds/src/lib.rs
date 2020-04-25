@@ -13,7 +13,7 @@ use serde_json::{Map, Value};
 use std::sync::{Arc, Mutex};
 
 use data_store::{Error as MmdsError, Mmds};
-use micro_http::{Body, Request, RequestError, Response, StatusCode, Version};
+use micro_http::{Body, MediaType, Request, RequestError, Response, StatusCode, Version};
 
 lazy_static! {
     // A static reference to a global Mmds instance. We currently use this for ease of access during
@@ -68,6 +68,12 @@ pub fn parse_request(request_bytes: &[u8]) -> Response {
                     Body::new("Invalid URI.".to_string()),
                 );
             }
+
+            let headers = request.headers();
+            // This should be replaced with a check for the accept header.
+            // If the header's value is PlainText, than we use IMDS.
+            // If the header's value is ApplicationJson, then we use the JSON format.
+            assert!(headers.accept() == MediaType::PlainText);
 
             // The lock can be held by one thread only, so it is safe to unwrap.
             // If another thread poisoned the lock, we abort the execution.

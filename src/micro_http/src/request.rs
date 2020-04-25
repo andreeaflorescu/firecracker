@@ -251,6 +251,11 @@ impl Request {
     pub fn method(&self) -> Method {
         self.request_line.method
     }
+
+    /// Returns reference to headers.
+    pub fn headers(&self) -> &Headers {
+        &self.headers
+    }
 }
 
 #[cfg(test)]

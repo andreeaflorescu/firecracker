@@ -18,6 +18,8 @@ pub enum Header {
     TransferEncoding,
     /// Header `Server`.
     Server,
+    /// Header `Accept`.
+    Accept,
 }
 
 impl Header {
@@ -29,6 +31,7 @@ impl Header {
             Self::Expect => b"Expect",
             Self::TransferEncoding => b"Transfer-Encoding",
             Self::Server => b"Server",
+            Self::Accept => b"Accept",
         }
     }
 
@@ -47,6 +50,7 @@ impl Header {
                 "expect" => Ok(Self::Expect),
                 "transfer-encoding" => Ok(Self::TransferEncoding),
                 "server" => Ok(Self::Server),
+                "accept" => Ok(Self::Accept),
                 _ => Err(RequestError::InvalidHeader),
             }
         } else {
@@ -80,6 +84,8 @@ pub struct Headers {
     /// server must support it. It is useful only when receiving the body of the request and should
     /// be known immediately after parsing the headers.
     chunked: bool,
+    /// Accept values are text/plaintext and text/json.
+    accept: MediaType,
 }
 
 impl Default for Headers {
@@ -89,6 +95,7 @@ impl Default for Headers {
             content_length: Default::default(),
             expect: Default::default(),
             chunked: Default::default(),
+            accept: MediaType::PlainText,
         }
     }
 }
@@ -153,6 +160,13 @@ impl Headers {
                             _ => Err(RequestError::InvalidHeader),
                         },
                         Header::Server => Ok(()),
+                        Header::Accept => match MediaType::try_from(entry[1].trim().as_bytes()) {
+                            Ok(media_type) => {
+                                self.accept = media_type;
+                                Ok(())
+                            }
+                            Err(_) => Err(RequestError::UnsupportedHeader),
+                        },
                     }
                 } else {
                     Err(RequestError::UnsupportedHeader)
@@ -179,6 +193,10 @@ impl Headers {
         self.expect
     }
 
+    /// Returns the value of the Accept header.
+    pub fn accept(&self) -> MediaType {
+        self.accept
+    }
     /// Parses a byte slice into a Headers structure for a HTTP request.
     ///
     /// The byte slice is expected to have the following format: </br>
@@ -296,6 +314,7 @@ mod tests {
                 content_length,
                 expect,
                 chunked,
+                accept: MediaType::PlainText,
             }
         }
     }
@@ -416,6 +435,15 @@ mod tests {
         assert!(header
             .parse_header_line(b"Content-Type: application/json")
             .is_ok());
+
+        // Test valid accept.
+        assert!(header
+            .parse_header_line(b"Accept: application/json")
+            .is_ok());
+        assert!(header.accept == MediaType::ApplicationJson);
+
+        assert!(header.parse_header_line(b"Accept: text/plain").is_ok());
+        assert!(header.accept == MediaType::PlainText);
     }
 
     #[test]
@@ -442,5 +470,8 @@ mod tests {
 
         let header = Header::try_from(b"content-length").unwrap();
         assert_eq!(header.raw(), b"Content-Length");
+
+        let header = Header::try_from(b"accept").unwrap();
+        assert_eq!(header.raw(), b"Accept");
     }
 }
